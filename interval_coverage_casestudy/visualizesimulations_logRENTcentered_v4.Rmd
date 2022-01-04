@@ -1,0 +1,1775 @@
+---
+title: "Simulation results when response is log(RENT)"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Posterior predictive check for $J = 12$ income brackets where response is RENT, for representative dataset of size 2000, $D_1$
+
+```{r,echo=FALSE}
+library(tidyverse)
+library(brms)
+library(tidybayes)
+library(survey)
+library(bayesplot)
+
+# v1 contains logRENTcentered
+
+# get NY state 
+# https://data.census.gov/cedsci/table?q=United%20States&g=0400000US36&y=2019&tid=ACSST1Y2019.S0101
+#nystate = ddi %>% filter(STATEFIP==36)
+nystate = readRDS("nystate_fiveyear2015_2019.rds")
+
+
+J = 3
+Dsize = 1000
+
+#### STEP 1: CREATE TARGET POPULATION P #####
+# TARGET POPULATION P has covariate INCTOT and true values RENT. PUMA is used to perform stratified sampling
+# The ppl of NY county are used 
+# OUTPUT: P as a dataframe, estimand as average log rent in P.
+
+
+# P is New York City without survey weights
+# COUNTYFIP: 61=New York county, 47=Kings county, 81=Queens county, 5=Bronx county, 85=Richmond county
+P = nystate %>% 
+  filter(COUNTYFIP %in% c(61,47,81,5,85) & RENT > 0 & (INCTOT > 0) & !(INCTOT %in% c(9999998,9999999))) %>% 
+  select(RENT, INCTOT, PUMA)
+
+P$logRENTcentered = log(P$RENT) - mean(log(P$RENT))
+
+# get population sizes of PUMA in P
+P_PUMAsize = P %>% group_by(PUMA) %>% summarise(N = n())
+
+# Define probs to do PPSWOR for D1,D2,D3
+P$INCTOTprobD1 = 0
+P[P$INCTOT<=median(P$INCTOT), c("INCTOTprobD1")] = 0.5
+P[P$INCTOT>median(P$INCTOT), c("INCTOTprobD1")] = 0.5
+P$INCTOTprobD2 = 0
+P[P$INCTOT<=median(P$INCTOT), c("INCTOTprobD2")] = 0.75
+P[P$INCTOT>median(P$INCTOT), c("INCTOTprobD2")] = 0.25
+P$INCTOTprobD3 = 0
+P[P$INCTOT<=median(P$INCTOT), c("INCTOTprobD3")] = 0.9
+P[P$INCTOT>median(P$INCTOT), c("INCTOTprobD3")] = 0.1
+
+# P$INCTOTprobD3 = 0
+# P[P$INCTOT<=20000, c("INCTOTprobD3")] = 0.9
+# P[P$INCTOT>20000, c("INCTOTprobD3")] = 0.1
+
+
+# create J incomebrackets in target population P
+P$incomebracket = cut(P$INCTOT,
+                      breaks=quantile(x=P$INCTOT, probs = seq(0,1, by=1/J)),
+                      include.lowest = TRUE
+)
+
+# rename incomebracket levels
+levels(P$incomebracket) = 1:J
+
+
+# sample D1
+D1indices = sample(x=1:dim(P)[1],
+                   prob=P$INCTOTprobD1,
+                   replace=FALSE,
+                   size=Dsize)
+
+D1 = P[D1indices,]
+# sample D2
+D2indices = sample(x=1:dim(P)[1],
+                   prob=P$INCTOTprobD2,
+                   replace=FALSE,
+                   size=Dsize)
+
+D2 = P[D2indices,]
+# sample D3
+D3indices = sample(x=1:dim(P)[1],
+                   prob=P$INCTOTprobD3,
+                   replace=FALSE,
+                   size=Dsize)
+
+D3 = P[D3indices,]
+```
+
+```{r}
+# Posterior predictive check D1
+model_D1_check_log = brm(formula = logRENTcentered ~ (1|incomebracket),
+               prior = c(
+                 prior(normal(0, 5), class=Intercept), 
+                 prior(normal(0, 5), class = sd),
+                 prior(normal(0, 5), class = sigma)
+               ),
+               data = D1,
+               chains=1,
+               cores=1,
+               #control = list(adapt_delta = 0.95), 
+               #sample_prior="only"
+               )
+
+yrep_fit_posterior_D1_log <- posterior_predict(model_D1_check_log)
+
+#complete_yrep_fit_posterior=yrep_fit_posterior_D1[complete.cases(yrep_fit_posterior_D1),]
+
+# 200 prior simulations
+complete_yrep_fit_posterior_f_D1_log=yrep_fit_posterior_D1_log[1:200,]
+
+# below is from bayesplot
+ppc_dens_overlay(D1$logRENTcentered,
+                 complete_yrep_fit_posterior_f_D1_log) +
+  xlab("log(RENT)") + ylab("Density") + ggtitle("Posterior predictive check D1")
+```
+
+
+
+```{r}
+# prior predictive check D1
+model_D1_check_log = brm(formula = logRENTcentered ~ (1|incomebracket),
+               prior = c(
+                 prior(normal(0, 5), class=Intercept), 
+                 prior(normal(0, 5), class = sd),
+                 prior(normal(0, 5), class = sigma)
+               ),
+               data = D1,
+               chains=1,
+               cores=1,
+               control = list(adapt_delta = 0.95), 
+               sample_prior="only"
+               )
+
+yrep_fit_posterior_D1_log <- posterior_predict(model_D1_check_log)
+
+#complete_yrep_fit_posterior=yrep_fit_posterior_D1[complete.cases(yrep_fit_posterior_D1),]
+
+# 200 prior simulations
+complete_yrep_fit_posterior_f_D1_log=yrep_fit_posterior_D1_log[1:200,]
+
+# below is from bayesplot
+ppc_dens_overlay(D1$logRENTcentered,
+                 complete_yrep_fit_posterior_f_D1_log) +
+  xlab("log(RENT)") + ylab("Density") + ggtitle("Prior predictive check D1")
+```
+
+## Prior/Posterior predictive check for $J = 12$ income brackets where response is RENT, for nonrepresentative dataset of size 500, $D_3$
+
+```{r}
+# Posterior predictive check
+
+model_D3_check_log = brm(formula = logRENTcentered ~ (1|incomebracket),
+               prior = c(
+                 prior(normal(0, 5), class=Intercept), 
+                 prior(normal(0, 5), class = sd),
+                 prior(normal(0, 5), class = sigma)
+               ),
+               data = D3,
+               chains=1,
+               cores=1,
+               control = list(adapt_delta = 0.95), 
+               #sample_prior="only"
+               )
+
+yrep_fit_posterior_D3_log <- posterior_predict(model_D3_check_log)
+
+#complete_yrep_fit_posterior=yrep_fit_posterior_D3[complete.cases(yrep_fit_posterior_D3),]
+
+# 200 prior simulations
+complete_yrep_fit_posterior_f_D3_log=yrep_fit_posterior_D3_log[1:200,]
+
+# below is from bayesplot
+ppc_dens_overlay(D3$logRENTcentered,
+                 complete_yrep_fit_posterior_f_D3_log) +
+  xlab("log(RENT)") + ylab("Density") + ggtitle("Posterior predictive check D3") 
+
+D3_posteriorpredictivecheck = ppc_dens_overlay(D3$logRENTcentered,
+                                               complete_yrep_fit_posterior_f_D3_log) +
+  xlab("log-Rent") + ylab("Density") + ggtitle("Posterior predictive check D3") +
+  ggtitle("") +
+  theme_minimal() +
+  theme(legend.position="bottom",
+        legend.box="vertical",
+        text = element_text(size=25),
+        axis.text.x = element_text(angle=45, hjust=1),
+        strip.text.x = element_text(size = 25),
+        strip.text.y = element_text(size = 25),
+        legend.title = element_text(size = 25),
+        panel.spacing = unit(2, "lines")
+  ) + xlim(c(-3,3))
+  # xlim(c(min(D3$logRENTcentered),
+  #        max(D3$logRENTcentered)))
+
+
+
+```
+
+
+```{r}
+# Prior predictive check
+
+model_D3_check_log = brm(formula = logRENTcentered ~ (1|incomebracket),
+               prior = c(
+                 prior(normal(0, 5), class=Intercept), 
+                 prior(normal(0, 5), class = sd),
+                 prior(normal(0, 5), class = sigma)
+               ),
+               data = D3,
+               chains=1,
+               cores=1,
+               control = list(adapt_delta = 0.95), 
+               sample_prior="only"
+               )
+
+yrep_fit_posterior_D3_log <- posterior_predict(model_D3_check_log)
+
+#complete_yrep_fit_posterior=yrep_fit_posterior_D3[complete.cases(yrep_fit_posterior_D3),]
+
+# 200 prior simulations
+complete_yrep_fit_posterior_f_D3_log=yrep_fit_posterior_D3_log[1:200,]
+
+# below is from bayesplot
+ppc_dens_overlay(D3$logRENTcentered,
+                 complete_yrep_fit_posterior_f_D3_log) +
+  xlab("log(RENT)") + ylab("Density") + ggtitle("Prior predictive check D3") 
+
+D3_priorpredictivecheck = ppc_dens_overlay(D3$logRENTcentered,
+                                           complete_yrep_fit_posterior_f_D3_log) +
+  xlab("log-Rent") + ylab("Density") + ggtitle("Prior predictive check D3")  +
+  ggtitle("") +
+  theme_minimal() +
+  theme(legend.position="bottom",
+        legend.box="vertical",
+        text = element_text(size=25),
+        axis.text.x = element_text(angle=45, hjust=1),
+        strip.text.x = element_text(size = 25),
+        strip.text.y = element_text(size = 25),
+        legend.title = element_text(size = 25),
+        panel.spacing = unit(2, "lines")
+  ) + xlim(c(-3,3))
+  # xlim(c(min(D3$logRENTcentered),
+  #        max(D3$logRENTcentered)))
+
+
+cowplot::plot_grid(D3_priorpredictivecheck, D3_posteriorpredictivecheck,
+                   labels = c("Prior predictive check", "Posterior predictive check"),
+                   label_size = 25)
+
+ggsave(paste0("D3_ppd.png"), width = 20, height = 10)
+```
+
+## Calculating $\hat{\mathbb{V}}_{\hat{\theta} \sim p(\theta \mid \mathcal{D}), \left(Z_1^S,\dots,Z_N^S \right)} \left( \hat{\mu} \right) = \frac{1}{N^2}  \text{tr} \left( {\Sigma_{\theta \mid \mathcal{D}}} \hat{{\Sigma}}_{J,N} \right) + \frac{1}{N^2} \vec{\hat{N}}^T {\Sigma_{\theta \mid \mathcal{D}}} \vec{\hat{N}}   + \frac{1}{N^2} {\hat{\Theta}_{J}}^T \hat{{\Sigma}}_{J,N} {\hat{\Theta}_{J}}$:
+
+We will use $\mathbb{E}_{\hat{\theta} \sim p(\theta \mid \mathcal{D}), \left(Z_1^S,\dots,Z_N^S \right)} \left( \hat{\mu} \right)  \pm 1.96 \sqrt{\hat{\mathbb{V}}_{\hat{\theta} \sim p(\theta \mid \mathcal{D}), \left(Z_1^S,\dots,Z_N^S \right)} \left( \hat{\mu} \right)}$ to build an approximate 95 percent uncertainty interval around the population mean.
+
+### Response is log(RENT)
+
+200 simulation iterations were run:
+
+```{r, echo=FALSE, warning=FALSE,eval=TRUE}
+# load packages
+
+library(tidyverse)
+library(brms)
+library(tidybayes)
+library(survey)
+
+nystate = readRDS("nystate_fiveyear2015_2019.rds")
+
+# P is New York City without survey weights
+# COUNTYFIP: 61=New York county, 47=Kings county, 81=Queens county, 5=Bronx county, 85=Richmond county
+P = nystate %>% 
+  filter(COUNTYFIP %in% c(61,47,81,5,85) & RENT > 0 & (INCTOT > 0) & !(INCTOT %in% c(9999998,9999999))) %>% 
+  select(RENT, INCTOT, PUMA)
+
+P$logRENTcentered = log(P$RENT) - mean(log(P$RENT))
+estimand = mean(P$logRENTcentered)
+
+estimand_subpop = P %>% filter(INCTOT <= 48000) %>% summarise(mean(logRENTcentered)) %>% unlist
+
+ACSstratasizevec = c(15,25,50)
+Dsizevec = c(1000,2000,4000)
+
+
+pointestimatefacetdf = c()
+coveragefacetdf = c()
+averagesdfacetdf = c()
+
+pointestimatefacetdf_subpop = c()
+coveragefacetdf_subpop = c()
+averagesdfacetdf_subpop = c()
+
+# bias_facetdf and bias_subpop_facetdf contain the avg bias squared of point estimates
+bias_facetdf = c()
+bias_subpop_facetdf = c()
+
+# var_facetdf and var_subpop_facetdf contain the variance of point estimates
+var_facetdf = c()
+var_subpop_facetdf = c()
+
+D1bias = c()
+D2bias = c()
+D3bias = c()
+D1bias_subpop = c()
+D2bias_subpop = c()
+D3bias_subpop = c()
+
+D1var = c()
+D2var = c()
+D3var = c()
+D1var_subpop = c()
+D2var_subpop = c()
+D3var_subpop = c()
+
+for (Dsize in Dsizevec) {
+  for (ACSstratasize in ACSstratasizevec) {
+    MRPposteriorsamplesvec_D1 = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_MRPposteriorsamplesvec_D1_fiveyearACS.rds"))
+    MRPposteriorsamplesvec_D2 = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_MRPposteriorsamplesvec_D2_fiveyearACS.rds"))
+    MRPposteriorsamplesvec_D3 = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_MRPposteriorsamplesvec_D3_fiveyearACS.rds"))
+    
+    MRPsdnaivevec_D1 = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_MRPsdnaivevec_D1_fiveyearACS.rds"))
+    MRPsdnaivevec_D2 = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_MRPsdnaivevec_D2_fiveyearACS.rds"))
+    MRPsdnaivevec_D3 = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_MRPsdnaivevec_D3_fiveyearACS.rds"))
+    
+    MRPsdvec_D1 = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_MRPsdvec_D1_fiveyearACS.rds"))
+    MRPsdvec_D2 = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_MRPsdvec_D2_fiveyearACS.rds"))
+    MRPsdvec_D3 = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_MRPsdvec_D3_fiveyearACS.rds"))
+    
+    D1mean = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_D1mean_fiveyearACS.rds"))
+    D2mean = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_D2mean_fiveyearACS.rds"))
+    D3mean = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_D3mean_fiveyearACS.rds"))
+    D1sdmean = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_D1sdmean_fiveyearACS.rds"))
+    D2sdmean = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_D2sdmean_fiveyearACS.rds"))
+    D3sdmean = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_D3sdmean_fiveyearACS.rds"))
+    
+    
+    MRPposteriorsamplesvec_D1_subpop = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_MRPposteriorsamplesvec_D1_subpop_fiveyearACS.rds"))
+    MRPposteriorsamplesvec_D2_subpop = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_MRPposteriorsamplesvec_D2_subpop_fiveyearACS.rds"))
+    MRPposteriorsamplesvec_D3_subpop = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_MRPposteriorsamplesvec_D3_subpop_fiveyearACS.rds"))
+    
+    MRPsdnaivevec_D1_subpop = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_MRPsdnaivevec_D1_subpop_fiveyearACS.rds"))
+    MRPsdnaivevec_D2_subpop = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_MRPsdnaivevec_D2_subpop_fiveyearACS.rds"))
+    MRPsdnaivevec_D3_subpop = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_MRPsdnaivevec_D3_subpop_fiveyearACS.rds"))
+    
+    MRPsdvec_D1_subpop = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_MRPsdvec_D1_subpop_fiveyearACS.rds"))
+    MRPsdvec_D2_subpop = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_MRPsdvec_D2_subpop_fiveyearACS.rds"))
+    MRPsdvec_D3_subpop = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_MRPsdvec_D3_subpop_fiveyearACS.rds"))
+    
+    D1mean_subpop = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_D1mean_subpop_fiveyearACS.rds"))
+    D2mean_subpop = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_D2mean_subpop_fiveyearACS.rds"))
+    D3mean_subpop = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_D3mean_subpop_fiveyearACS.rds"))
+    D1sdmean_subpop = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_D1sdmean_subpop_fiveyearACS.rds"))
+    D2sdmean_subpop = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_D2sdmean_subpop_fiveyearACS.rds"))
+    D3sdmean_subpop = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_D3sdmean_subpop_fiveyearACS.rds"))
+    
+    D1naivePS = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_D1naivePS_fiveyearACS.rds"))
+    D2naivePS = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_D2naivePS_fiveyearACS.rds"))
+    D3naivePS = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_D3naivePS_fiveyearACS.rds"))
+    D1naivePS_subpop = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_D1naivePS_subpop_fiveyearACS.rds"))
+    D2naivePS_subpop = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_D2naivePS_subpop_fiveyearACS.rds"))
+    D3naivePS_subpop = readRDS(file = paste0(ACSstratasize, "_", Dsize, "_D3naivePS_subpop_fiveyearACS.rds"))
+    
+    # D1 #####
+    print("**********************************************************")
+    print("************************ D1 ******************************")
+    print("**********************************************************")
+    D1plotdf = c()
+    D1coveragedf = c()
+    
+    D1plotdf_subpop = c()
+    D1coveragedf_subpop = c()
+    
+    D1bias_temp = c()
+    D1var_temp = c()
+    
+    D1bias_temp_subpop = c()
+    D1var_temp_subpop = c()
+    
+    for (j in names(MRPposteriorsamplesvec_D1)) {
+      D1plotdf = rbind(D1plotdf, 
+                       data.frame(
+                         pointestimate = rowMeans(MRPposteriorsamplesvec_D1[[j]]),
+                         type = "MRP posterior mean",
+                         incomebrackets = as.numeric(j)
+                       ),
+                       data.frame(
+                         pointestimate = D1mean[[toString(j)]],
+                         type = "Sample mean in D",
+                         incomebrackets = as.numeric(j)
+                       )
+                       
+      )
+      
+      D1coveragedf = cbind(D1coveragedf,
+                           c(
+                             mean(estimand < D1mean[[j]] + 1.96*D1sdmean[[j]] &
+                                    estimand > D1mean[[j]] - 1.96*D1sdmean[[j]]),
+                             mean(estimand < rowMeans(MRPposteriorsamplesvec_D1[[j]]) + 1.96*MRPsdnaivevec_D1[[j]] &
+                                    estimand > rowMeans(MRPposteriorsamplesvec_D1[[j]]) - 1.96*MRPsdnaivevec_D1[[j]]),
+                             mean(estimand < apply(X = MRPposteriorsamplesvec_D1[[j]], FUN = quantile,MARGIN = 1 , 0.975) & 
+                               estimand > apply(X = MRPposteriorsamplesvec_D1[[j]], FUN = quantile,MARGIN = 1 , 0.025)),
+                             mean(estimand < rowMeans(MRPposteriorsamplesvec_D1[[j]]) + 1.96*MRPsdvec_D1[[j]] & 
+                                    estimand > rowMeans(MRPposteriorsamplesvec_D1[[j]]) - 1.96*MRPsdvec_D1[[j]])
+                           )
+      )
+      
+      
+      
+      # Subpop D1 ####
+      D1plotdf_subpop = rbind(D1plotdf_subpop,
+                              data.frame(
+                                pointestimate = rowMeans(MRPposteriorsamplesvec_D1_subpop[[j]]),
+                                type = "Subpop MRP posterior mean",
+                                incomebrackets = as.numeric(j) 
+                              ),
+                              data.frame(
+                                pointestimate = D1mean_subpop[[toString(j)]],
+                                type = "Subpop Sample mean in D",
+                                incomebrackets = as.numeric(j)
+                              )
+      )
+      
+      D1coveragedf_subpop = cbind(D1coveragedf_subpop,
+                                  c(
+                                    mean(estimand_subpop < D1mean_subpop[[j]] + 1.96*D1sdmean_subpop[[j]] &
+                                           estimand_subpop > D1mean_subpop[[j]] - 1.96*D1sdmean_subpop[[j]]),
+                                    mean(estimand_subpop < rowMeans(MRPposteriorsamplesvec_D1_subpop[[j]]) + 1.96*MRPsdnaivevec_D1_subpop[[j]] &
+                                           estimand_subpop > rowMeans(MRPposteriorsamplesvec_D1_subpop[[j]]) - 1.96*MRPsdnaivevec_D1_subpop[[j]]),
+                                    mean(estimand_subpop < apply(X = MRPposteriorsamplesvec_D1_subpop[[j]], FUN = quantile,MARGIN = 1 , 0.975) & 
+                                           estimand_subpop > apply(X = MRPposteriorsamplesvec_D1_subpop[[j]], FUN = quantile,MARGIN = 1 , 0.025)),
+                                    mean(estimand_subpop < rowMeans(MRPposteriorsamplesvec_D1_subpop[[j]]) + 1.96*MRPsdvec_D1_subpop[[j]] & 
+                                           estimand_subpop > rowMeans(MRPposteriorsamplesvec_D1_subpop[[j]]) - 1.96*MRPsdvec_D1_subpop[[j]])
+                                  )
+      )
+      
+      # bias and variance tracking for pop estimand and subpop estimand
+      
+      D1bias_temp = cbind(D1bias_temp,
+                          c(
+                            (mean(D1mean[[j]]) - estimand)^2,
+                            (mean(rowMeans(MRPposteriorsamplesvec_D1[[j]])) - estimand)^2,
+                            (mean(D1naivePS[[j]]) - estimand)^2
+                          )
+      )
+      
+      # var is the sample mean and has 1/(n-1) correction but that should be ok since 1000 samples are used 
+      D1var_temp = cbind(D1var_temp,
+                         c(
+                           var(D1mean[[j]]),
+                           var(rowMeans(MRPposteriorsamplesvec_D1[[j]])),
+                           var(D1naivePS[[j]])
+                         )
+      )
+      
+      D1bias_temp_subpop = cbind(D1bias_temp_subpop,
+                                 c(
+                                   (mean(D1mean_subpop[[j]]) - estimand_subpop)^2,
+                                   (mean(rowMeans(MRPposteriorsamplesvec_D1_subpop[[j]])) - estimand_subpop)^2,
+                                   (mean(D1naivePS_subpop[[j]]) - estimand_subpop)^2
+                                 )
+      )
+      
+      # var is the sample mean and has 1/(n-1) correction but that should be ok since 1000 samples are used 
+      D1var_temp_subpop = cbind(D1var_temp_subpop,
+                                c(
+                                  var(D1mean_subpop[[j]]),
+                                  var(rowMeans(MRPposteriorsamplesvec_D1_subpop[[j]])),
+                                  var(D1naivePS_subpop[[j]])
+                                )
+      )
+      
+      
+    }
+    
+    rownames(D1coveragedf) = c("Coverage Sample Mean",
+                               "Coverage Naive MRP Var",
+                               "Coverage Naive MRP Credible I",
+                               "Coverage Derived MRP Var")
+    colnames(D1coveragedf) = names(MRPposteriorsamplesvec_D1)
+    
+    print(paste0("POP: Size of ACS:",ACSstratasize*55, " Size of D1 sample:", Dsize))
+    print(D1coveragedf)
+    
+    # Subpop D1 print ####
+    rownames(D1coveragedf_subpop) = c("Coverage Sample Mean",
+                                      "Coverage Naive MRP Var",
+                                      "Coverage Naive MRP Credible I",
+                                      "Coverage Derived MRP Var")
+    colnames(D1coveragedf_subpop) = names(MRPposteriorsamplesvec_D1_subpop)
+    
+    # rownames(D1coveragedf_subpop) = c("Coverage Sample Mean",
+    #                                   "Coverage Naive MRP Var",
+    #                                   "Coverage Naive MRP Credible I",
+    #                                   "Coverage Derived MRP Var")
+    # colnames(D1coveragedf_subpop) = names(MRPposteriorsamplesvec_D1_subpop)
+    
+    # rownames(D1mse_temp) = c(paste0("ACS size=",),
+    #                          )
+    
+    print(paste0("SUBPOP: Size of ACS:",ACSstratasize*55, " Size of D1 sample:", Dsize))
+    print(D1coveragedf_subpop)
+    
+    # fill coveragefacetdf and pointestimatefacetdf and averagesdfacetdf
+    coveragefacetdf = rbind(
+      coveragefacetdf,
+      data.frame(
+        reshape2::melt(D1coveragedf),
+        datatype = "D1",
+        Dsize = Dsize,
+        ACSsize = ACSstratasize * 55
+      )                    
+    )
+    
+    pointestimatefacetdf = rbind(
+      pointestimatefacetdf,
+      data.frame(
+        reshape2::melt(D1plotdf),
+        datatype = "D1",
+        Dsize = Dsize, 
+        ACSsize = ACSstratasize * 55
+      )
+    )
+    
+    
+    # subpop: fill up coveragefacetdf_subpop ####
+    coveragefacetdf_subpop = rbind(
+      coveragefacetdf_subpop,
+      data.frame(
+        reshape2::melt(D1coveragedf_subpop),
+        datatype = "D1",
+        Dsize = Dsize,
+        ACSsize = ACSstratasize * 55
+      )                    
+    )
+    
+    # fill up D1bias, D1var for pop and subpop
+    colnames(D1bias_temp) = names(MRPposteriorsamplesvec_D1)
+    rownames(D1bias_temp) = c("Sample Mean point estimates",
+                              "MRP point estimates",
+                              "Poststratified Sample Mean point estimates")
+    
+    bias_facetdf = rbind(
+      bias_facetdf,
+      data.frame(
+        reshape2::melt(D1bias_temp),
+        datatype = "D1",
+        Dsize = Dsize,
+        ACSsize = ACSstratasize * 55
+      )
+    )
+    
+    colnames(D1var_temp) = names(MRPposteriorsamplesvec_D1)
+    rownames(D1var_temp) = c("Sample Mean point estimates",
+                              "MRP point estimates",
+                             "Poststratified Sample Mean point estimates")
+    
+    var_facetdf = rbind(
+      var_facetdf,
+      data.frame(
+        reshape2::melt(D1var_temp),
+        datatype = "D1",
+        Dsize = Dsize,
+        ACSsize = ACSstratasize * 55
+      )
+    )
+    
+    
+    colnames(D1bias_temp_subpop) = names(MRPposteriorsamplesvec_D1_subpop)
+    rownames(D1bias_temp_subpop) = c("Sample Mean point estimates",
+                                     "MRP point estimates",
+                                     "Poststratified Sample Mean point estimates")
+    
+    bias_subpop_facetdf = rbind(
+      bias_subpop_facetdf,
+      data.frame(
+        reshape2::melt(D1bias_temp_subpop),
+        datatype = "D1",
+        Dsize = Dsize,
+        ACSsize = ACSstratasize * 55
+      )
+    )
+    
+    colnames(D1var_temp_subpop) = names(MRPposteriorsamplesvec_D1_subpop)
+    rownames(D1var_temp_subpop) = c("Sample Mean point estimates",
+                                    "MRP point estimates",
+                                    "Poststratified Sample Mean point estimates")
+    
+    var_subpop_facetdf = rbind(
+      var_subpop_facetdf,
+      data.frame(
+        reshape2::melt(D1var_temp_subpop),
+        datatype = "D1",
+        Dsize = Dsize,
+        ACSsize = ACSstratasize * 55
+      )
+    )
+    
+    
+    print("")
+    
+    averagesd_D1 = t(data.frame(
+      AverageStandardDevNaiveEstimateD1 = lapply(X = MRPsdnaivevec_D1, FUN = mean) %>% unlist,
+      AverageStandardDevOurEstimateD1 = lapply(X = MRPsdvec_D1, FUN = mean) %>% unlist,
+      StandardDevOurEstimateOverStandardDevNaiveEstimate = (lapply(X = MRPsdvec_D1, FUN = mean) %>% unlist)/(lapply(X = MRPsdnaivevec_D1, FUN = mean) %>% unlist)
+    )
+    )
+        
+    print(averagesd_D1)
+    
+    averagesd_D1_subpop = t(data.frame(
+      AverageStandardDevNaiveEstimateD1 = lapply(X = MRPsdnaivevec_D1_subpop, FUN = mean) %>% unlist,
+      AverageStandardDevOurEstimateD1 = lapply(X = MRPsdvec_D1_subpop, FUN = mean) %>% unlist,
+      StandardDevOurEstimateOverStandardDevNaiveEstimate = (lapply(X = MRPsdvec_D1_subpop, FUN = mean) %>% unlist)/(lapply(X = MRPsdnaivevec_D1_subpop, FUN = mean) %>% unlist)
+    )
+    ) 
+    
+    print(averagesd_D1_subpop)
+    
+    averagesdfacetdf = rbind(
+      averagesdfacetdf, 
+      data.frame(
+        reshape2::melt(averagesd_D1),
+        datatype = "D1",
+        Dsize = Dsize, 
+        ACSsize = ACSstratasize * 55
+      )
+    )
+    
+
+    # D2 ####
+
+    print("**********************************************************")
+    print("************************ D2 ******************************")
+    print("**********************************************************")
+    D2plotdf = c()
+    D2coveragedf = c()
+    
+    D2plotdf_subpop = c()
+    D2coveragedf_subpop = c()
+    
+    D2bias_temp = c()
+    D2var_temp = c()
+    
+    D2bias_temp_subpop = c()
+    D2var_temp_subpop = c()
+    
+    for (j in names(MRPposteriorsamplesvec_D2)) {
+      D2plotdf = rbind(D2plotdf, 
+                       data.frame(
+                         pointestimate = rowMeans(MRPposteriorsamplesvec_D2[[j]]),
+                         type = "MRP posterior mean",
+                         incomebrackets = as.numeric(j)
+                       ),
+                       data.frame(
+                         pointestimate = D2mean[[toString(j)]],
+                         type = "Sample mean in D",
+                         incomebrackets = as.numeric(j)
+                       )
+                       
+      )
+      
+      D2coveragedf = cbind(D2coveragedf,
+                           c(
+                             mean(estimand < D2mean[[j]] + 1.96*D2sdmean[[j]] &
+                                    estimand > D2mean[[j]] - 1.96*D2sdmean[[j]]),
+                             mean(estimand < rowMeans(MRPposteriorsamplesvec_D2[[j]]) + 1.96*MRPsdnaivevec_D2[[j]] &
+                                    estimand > rowMeans(MRPposteriorsamplesvec_D2[[j]]) - 1.96*MRPsdnaivevec_D2[[j]]),
+                             mean(estimand < apply(X = MRPposteriorsamplesvec_D2[[j]], FUN = quantile,MARGIN = 1 , 0.975) & 
+                               estimand > apply(X = MRPposteriorsamplesvec_D2[[j]], FUN = quantile,MARGIN = 1 , 0.025)),
+                             mean(estimand < rowMeans(MRPposteriorsamplesvec_D2[[j]]) + 1.96*MRPsdvec_D2[[j]] & 
+                                    estimand > rowMeans(MRPposteriorsamplesvec_D2[[j]]) - 1.96*MRPsdvec_D2[[j]])
+                           )
+      )
+      
+      # subpop ####
+      
+      D2coveragedf_subpop = cbind(D2coveragedf_subpop,
+                                  c(
+                                    mean(estimand_subpop < D2mean_subpop[[j]] + 1.96*D2sdmean_subpop[[j]] &
+                                           estimand_subpop > D2mean_subpop[[j]] - 1.96*D2sdmean_subpop[[j]]),
+                                    mean(estimand_subpop < rowMeans(MRPposteriorsamplesvec_D2_subpop[[j]]) + 1.96*MRPsdnaivevec_D2_subpop[[j]] &
+                                           estimand_subpop > rowMeans(MRPposteriorsamplesvec_D2_subpop[[j]]) - 1.96*MRPsdnaivevec_D2_subpop[[j]]),
+                                    mean(estimand_subpop < apply(X = MRPposteriorsamplesvec_D2_subpop[[j]], FUN = quantile,MARGIN = 1 , 0.975) & 
+                                           estimand_subpop > apply(X = MRPposteriorsamplesvec_D2_subpop[[j]], FUN = quantile,MARGIN = 1 , 0.025)),
+                                    mean(estimand_subpop < rowMeans(MRPposteriorsamplesvec_D2_subpop[[j]]) + 1.96*MRPsdvec_D2_subpop[[j]] & 
+                                           estimand_subpop > rowMeans(MRPposteriorsamplesvec_D2_subpop[[j]]) - 1.96*MRPsdvec_D2_subpop[[j]])
+                                  )
+      )
+      
+      # bias and variance tracking for pop estimand and subpop estimand
+      
+      D2bias_temp = cbind(D2bias_temp,
+                          c(
+                            (mean(D2mean[[j]]) - estimand)^2,
+                            (mean(rowMeans(MRPposteriorsamplesvec_D2[[j]])) - estimand)^2,
+                            (mean(D2naivePS[[j]]) - estimand)^2
+                          )
+      )
+      
+      # var is the sample mean and has 1/(n-1) correction but that should be ok since 1000 samples are used 
+      D2var_temp = cbind(D2var_temp,
+                         c(
+                           var(D2mean[[j]]),
+                           var(rowMeans(MRPposteriorsamplesvec_D2[[j]])),
+                           var(D2naivePS[[j]])
+                         )
+      )
+      
+      D2bias_temp_subpop = cbind(D2bias_temp_subpop,
+                                 c(
+                                   (mean(D2mean_subpop[[j]]) - estimand_subpop)^2,
+                                   (mean(rowMeans(MRPposteriorsamplesvec_D2_subpop[[j]])) - estimand_subpop)^2,
+                                   (mean(D2naivePS_subpop[[j]]) - estimand_subpop)^2
+                                 )
+      )
+      
+      # var is the sample mean and has 1/(n-1) correction but that should be ok since 1000 samples are used 
+      D2var_temp_subpop = cbind(D2var_temp_subpop,
+                                c(
+                                  var(D2mean_subpop[[j]]),
+                                  var(rowMeans(MRPposteriorsamplesvec_D2_subpop[[j]])),
+                                  var(D2naivePS_subpop[[j]])
+                                )
+      )
+      
+      
+    }
+    
+    
+    rownames(D2coveragedf) = c("Coverage Sample Mean",
+                               "Coverage Naive MRP Var",
+                               "Coverage Naive MRP Credible I",
+                               "Coverage Derived MRP Var")
+    colnames(D2coveragedf) = names(MRPposteriorsamplesvec_D2)
+    
+    rownames(D2coveragedf_subpop) = c("Coverage Sample Mean",
+                                      "Coverage Naive MRP Var",
+                                      "Coverage Naive MRP Credible I",
+                                      "Coverage Derived MRP Var")
+    colnames(D2coveragedf_subpop) = names(MRPposteriorsamplesvec_D2_subpop)
+    
+    print(paste0("Size of ACS:",ACSstratasize*55, " Size of D2 sample:", Dsize))
+    print(D2coveragedf)
+    
+    print(paste0("SUBPOP: Size of ACS:",ACSstratasize*55, " Size of D2 sample:", Dsize))
+    print(D2coveragedf_subpop)
+    
+    # fill coveragefacetdf and pointestimatefacetdf
+    coveragefacetdf = rbind(
+      coveragefacetdf,
+      data.frame(
+        reshape2::melt(D2coveragedf),
+        datatype = "D2",
+        Dsize = Dsize,
+        ACSsize = ACSstratasize * 55
+      )                    
+    )
+    
+    pointestimatefacetdf = rbind(
+      pointestimatefacetdf,
+      data.frame(
+        reshape2::melt(D2plotdf),
+        datatype = "D2",
+        Dsize = Dsize, 
+        ACSsize = ACSstratasize * 55
+      )
+    )
+    
+    # subpop: fill up coveragefacetdf_subpop ####
+    
+    coveragefacetdf_subpop = rbind(
+      coveragefacetdf_subpop,
+      data.frame(
+        reshape2::melt(D2coveragedf_subpop),
+        datatype = "D2",
+        Dsize = Dsize,
+        ACSsize = ACSstratasize * 55
+      )                    
+    )
+    
+    
+    # fill up D2bias, D2var for pop and subpop
+    colnames(D2bias_temp) = names(MRPposteriorsamplesvec_D2)
+    rownames(D2bias_temp) = c("Sample Mean point estimates",
+                              "MRP point estimates",
+                              "Poststratified Sample Mean point estimates")
+    
+    bias_facetdf = rbind(
+      bias_facetdf,
+      data.frame(
+        reshape2::melt(D2bias_temp),
+        datatype = "D2",
+        Dsize = Dsize,
+        ACSsize = ACSstratasize * 55
+      )
+    )
+    
+    colnames(D2var_temp) = names(MRPposteriorsamplesvec_D2)
+    rownames(D2var_temp) = c("Sample Mean point estimates",
+                             "MRP point estimates",
+                             "Poststratified Sample Mean point estimates")
+    
+    var_facetdf = rbind(
+      var_facetdf,
+      data.frame(
+        reshape2::melt(D2var_temp),
+        datatype = "D2",
+        Dsize = Dsize,
+        ACSsize = ACSstratasize * 55
+      )
+    )
+    
+    
+    colnames(D2bias_temp_subpop) = names(MRPposteriorsamplesvec_D2_subpop)
+    rownames(D2bias_temp_subpop) = c("Sample Mean point estimates",
+                                     "MRP point estimates",
+                                     "Poststratified Sample Mean point estimates")
+    
+    bias_subpop_facetdf = rbind(
+      bias_subpop_facetdf,
+      data.frame(
+        reshape2::melt(D2bias_temp_subpop),
+        datatype = "D2",
+        Dsize = Dsize,
+        ACSsize = ACSstratasize * 55
+      )
+    )
+    
+    colnames(D2var_temp_subpop) = names(MRPposteriorsamplesvec_D2_subpop)
+    rownames(D2var_temp_subpop) = c("Sample Mean point estimates",
+                                    "MRP point estimates",
+                                    "Poststratified Sample Mean point estimates")
+    
+    var_subpop_facetdf = rbind(
+      var_subpop_facetdf,
+      data.frame(
+        reshape2::melt(D2var_temp_subpop),
+        datatype = "D2",
+        Dsize = Dsize,
+        ACSsize = ACSstratasize * 55
+      )
+    )
+    
+    print("")
+    
+    averagesd_D2 = t(data.frame(
+      AverageStandardDevNaiveEstimateD2 = lapply(X = MRPsdnaivevec_D2, FUN = mean) %>% unlist,
+      AverageStandardDevOurEstimateD2 = lapply(X = MRPsdvec_D2, FUN = mean) %>% unlist,
+      StandardDevOurEstimateOverStandardDevNaiveEstimate = (lapply(X = MRPsdvec_D2, FUN = mean) %>% unlist)/(lapply(X = MRPsdnaivevec_D2, FUN = mean) %>% unlist)
+    )
+    )
+    
+    averagesdfacetdf = rbind(
+      averagesdfacetdf, 
+      data.frame(
+        reshape2::melt(averagesd_D2),
+        datatype = "D2",
+        Dsize = Dsize, 
+        ACSsize = ACSstratasize * 55
+      )
+    )
+    
+    print(averagesd_D2)
+    
+    averagesd_D2_subpop = t(data.frame(
+      AverageStandardDevNaiveEstimateD2 = lapply(X = MRPsdnaivevec_D2_subpop, FUN = mean) %>% unlist,
+      AverageStandardDevOurEstimateD2 = lapply(X = MRPsdvec_D2_subpop, FUN = mean) %>% unlist,
+      StandardDevOurEstimateOverStandardDevNaiveEstimate = (lapply(X = MRPsdvec_D2_subpop, FUN = mean) %>% unlist)/(lapply(X = MRPsdnaivevec_D2_subpop, FUN = mean) %>% unlist)
+    )
+    ) 
+    
+    print(averagesd_D2_subpop)
+    
+    
+        # D3 #####
+    print("**********************************************************")
+    print("************************ D3 ******************************")
+    print("**********************************************************")
+    D3plotdf = c()
+    D3coveragedf = c()
+    
+    D3plotdf_subpop = c()
+    D3coveragedf_subpop = c()
+    
+    D3bias_temp = c()
+    D3var_temp = c()
+    
+    D3bias_temp_subpop = c()
+    D3var_temp_subpop = c()
+    
+    for (j in names(MRPposteriorsamplesvec_D3)) {
+      D3plotdf = rbind(D3plotdf, 
+                       data.frame(
+                         pointestimate = rowMeans(MRPposteriorsamplesvec_D3[[j]]),
+                         type = "MRP posterior mean",
+                         incomebrackets = as.numeric(j)
+                       ),
+                       data.frame(
+                         pointestimate = D3mean[[toString(j)]],
+                         type = "Sample mean in D",
+                         incomebrackets = as.numeric(j)
+                       )
+                       
+      )
+      
+      D3coveragedf = cbind(D3coveragedf,
+                           c(
+                             mean(estimand < D3mean[[j]] + 1.96*D3sdmean[[j]] &
+                                    estimand > D3mean[[j]] - 1.96*D3sdmean[[j]]),
+                             mean(estimand < rowMeans(MRPposteriorsamplesvec_D3[[j]]) + 1.96*MRPsdnaivevec_D3[[j]] &
+                                    estimand > rowMeans(MRPposteriorsamplesvec_D3[[j]]) - 1.96*MRPsdnaivevec_D3[[j]]),
+                             mean(estimand < apply(X = MRPposteriorsamplesvec_D3[[j]], FUN = quantile,MARGIN = 1 , 0.975) & 
+                               estimand > apply(X = MRPposteriorsamplesvec_D3[[j]], FUN = quantile,MARGIN = 1 , 0.025)),
+                             mean(estimand < rowMeans(MRPposteriorsamplesvec_D3[[j]]) + 1.96*MRPsdvec_D3[[j]] & 
+                                    estimand > rowMeans(MRPposteriorsamplesvec_D3[[j]]) - 1.96*MRPsdvec_D3[[j]])
+                           )
+      )
+      
+      # subpop ####
+      
+      D3coveragedf_subpop = cbind(D3coveragedf_subpop,
+                                  c(
+                                    mean(estimand_subpop < D3mean_subpop[[j]] + 1.96*D3sdmean_subpop[[j]] &
+                                           estimand_subpop > D3mean_subpop[[j]] - 1.96*D3sdmean_subpop[[j]]),
+                                    mean(estimand_subpop < rowMeans(MRPposteriorsamplesvec_D3_subpop[[j]]) + 1.96*MRPsdnaivevec_D3_subpop[[j]] &
+                                           estimand_subpop > rowMeans(MRPposteriorsamplesvec_D3_subpop[[j]]) - 1.96*MRPsdnaivevec_D3_subpop[[j]]),
+                                    mean(estimand_subpop < apply(X = MRPposteriorsamplesvec_D3_subpop[[j]], FUN = quantile,MARGIN = 1 , 0.975) & 
+                                           estimand_subpop > apply(X = MRPposteriorsamplesvec_D3_subpop[[j]], FUN = quantile,MARGIN = 1 , 0.025)),
+                                    mean(estimand_subpop < rowMeans(MRPposteriorsamplesvec_D3_subpop[[j]]) + 1.96*MRPsdvec_D3_subpop[[j]] & 
+                                           estimand_subpop > rowMeans(MRPposteriorsamplesvec_D3_subpop[[j]]) - 1.96*MRPsdvec_D3_subpop[[j]])
+                                  )
+      )
+      
+      
+      # bias and variance tracking for pop estimand and subpop estimand
+      
+      D3bias_temp = cbind(D3bias_temp,
+                          c(
+                            (mean(D3mean[[j]]) - estimand)^2,
+                            (mean(rowMeans(MRPposteriorsamplesvec_D3[[j]])) - estimand)^2,
+                            (mean(D3naivePS[[j]]) - estimand)^2
+                          )
+      )
+      
+      # var is the sample mean and has 1/(n-1) correction but that should be ok since 1000 samples are used 
+      D3var_temp = cbind(D3var_temp,
+                         c(
+                           var(D3mean[[j]]),
+                           var(rowMeans(MRPposteriorsamplesvec_D3[[j]])),
+                           var(D3naivePS[[j]])
+                         )
+      )
+      
+      D3bias_temp_subpop = cbind(D3bias_temp_subpop,
+                                 c(
+                                   (mean(D3mean_subpop[[j]]) - estimand_subpop)^2,
+                                   (mean(rowMeans(MRPposteriorsamplesvec_D3_subpop[[j]])) - estimand_subpop)^2,
+                                   (mean(D3naivePS_subpop[[j]]) - estimand_subpop)^2
+                                 )
+      )
+      
+      # var is the sample mean and has 1/(n-1) correction but that should be ok since 1000 samples are used 
+      D3var_temp_subpop = cbind(D3var_temp_subpop,
+                                c(
+                                  var(D3mean_subpop[[j]]),
+                                  var(rowMeans(MRPposteriorsamplesvec_D3_subpop[[j]])),
+                                  var(D3naivePS_subpop[[j]])
+                                )
+      )
+      
+      
+      
+      
+    }
+    
+    rownames(D3coveragedf) = c("Coverage Sample Mean",
+                               "Coverage Naive MRP Var",
+                               "Coverage Naive MRP Credible I",
+                               "Coverage Derived MRP Var")
+    colnames(D3coveragedf) = names(MRPposteriorsamplesvec_D3)
+    
+    rownames(D3coveragedf_subpop) = c("Coverage Sample Mean",
+                                      "Coverage Naive MRP Var",
+                                      "Coverage Naive MRP Credible I",
+                                      "Coverage Derived MRP Var")
+    colnames(D3coveragedf_subpop) = names(MRPposteriorsamplesvec_D3_subpop)
+    
+    print(paste0("Size of ACS:",ACSstratasize*55, " Size of D3 sample:", Dsize))
+    print(D3coveragedf)
+    
+    print(paste0("SUBPOP: Size of ACS:", ACSstratasize*55, " Size of D3 sample:", Dsize))
+    print(D3coveragedf_subpop)
+    
+    coveragefacetdf = rbind(
+      coveragefacetdf,
+      data.frame(
+        reshape2::melt(D3coveragedf),
+        datatype = "D3",
+        Dsize = Dsize,
+        ACSsize = ACSstratasize * 55
+      )                    
+    )
+    
+    pointestimatefacetdf = rbind(
+      pointestimatefacetdf,
+      data.frame(
+        reshape2::melt(D3plotdf),
+        datatype = "D3",
+        Dsize = Dsize, 
+        ACSsize = ACSstratasize * 55
+      )
+    )
+    
+    # subpop: fill up coveragefacetdf_subpop ####
+    
+    coveragefacetdf_subpop = rbind(
+      coveragefacetdf_subpop,
+      data.frame(
+        reshape2::melt(D3coveragedf_subpop),
+        datatype = "D3",
+        Dsize = Dsize,
+        ACSsize = ACSstratasize * 55
+      )                    
+    )
+    
+    # fill up D3bias, D3var for pop and subpop
+    colnames(D3bias_temp) = names(MRPposteriorsamplesvec_D3)
+    rownames(D3bias_temp) = c("Sample Mean point estimates",
+                              "MRP point estimates",
+                              "Poststratified Sample Mean point estimates")
+    
+    bias_facetdf = rbind(
+      bias_facetdf,
+      data.frame(
+        reshape2::melt(D3bias_temp),
+        datatype = "D3",
+        Dsize = Dsize,
+        ACSsize = ACSstratasize * 55
+      )
+    )
+    
+    colnames(D3var_temp) = names(MRPposteriorsamplesvec_D3)
+    rownames(D3var_temp) = c("Sample Mean point estimates",
+                             "MRP point estimates",
+                             "Poststratified Sample Mean point estimates")
+    
+    var_facetdf = rbind(
+      var_facetdf,
+      data.frame(
+        reshape2::melt(D3var_temp),
+        datatype = "D3",
+        Dsize = Dsize,
+        ACSsize = ACSstratasize * 55
+      )
+    )
+    
+    
+    colnames(D3bias_temp_subpop) = names(MRPposteriorsamplesvec_D3_subpop)
+    rownames(D3bias_temp_subpop) = c("Sample Mean point estimates",
+                                     "MRP point estimates",
+                                     "Poststratified Sample Mean point estimates")
+    
+    bias_subpop_facetdf = rbind(
+      bias_subpop_facetdf,
+      data.frame(
+        reshape2::melt(D3bias_temp_subpop),
+        datatype = "D3",
+        Dsize = Dsize,
+        ACSsize = ACSstratasize * 55
+      )
+    )
+    
+    colnames(D3var_temp_subpop) = names(MRPposteriorsamplesvec_D3_subpop)
+    rownames(D3var_temp_subpop) = c("Sample Mean point estimates",
+                                    "MRP point estimates",
+                                    "Poststratified Sample Mean point estimates")
+    
+    var_subpop_facetdf = rbind(
+      var_subpop_facetdf,
+      data.frame(
+        reshape2::melt(D3var_temp_subpop),
+        datatype = "D3",
+        Dsize = Dsize,
+        ACSsize = ACSstratasize * 55
+      )
+    )
+    
+    
+    print("")
+    
+    averagesd_D3 = t(data.frame(
+      AverageStandardDevNaiveEstimateD3 = lapply(X = MRPsdnaivevec_D3, FUN = mean) %>% unlist,
+      AverageStandardDevOurEstimateD3 = lapply(X = MRPsdvec_D3, FUN = mean) %>% unlist,
+      StandardDevOurEstimateOverStandardDevNaiveEstimate = (lapply(X = MRPsdvec_D3, FUN = mean) %>% unlist)/(lapply(X = MRPsdnaivevec_D3, FUN = mean) %>% unlist)
+    )
+    ) 
+    
+        
+    averagesdfacetdf = rbind(
+      averagesdfacetdf, 
+      data.frame(
+        reshape2::melt(averagesd_D3),
+        datatype = "D3",
+        Dsize = Dsize, 
+        ACSsize = ACSstratasize * 55
+      )
+    )
+    
+    print(averagesd_D3)
+    
+    # subpop averagesdfacetdf ####
+    
+    averagesd_D3_subpop = t(data.frame(
+      AverageStandardDevNaiveEstimateD3 = lapply(X = MRPsdnaivevec_D3_subpop, FUN = mean) %>% unlist,
+      AverageStandardDevOurEstimateD3 = lapply(X = MRPsdvec_D3_subpop, FUN = mean) %>% unlist,
+      StandardDevOurEstimateOverStandardDevNaiveEstimate = (lapply(X = MRPsdvec_D3_subpop, FUN = mean) %>% unlist)/(lapply(X = MRPsdnaivevec_D3_subpop, FUN = mean) %>% unlist)
+    )
+    ) 
+    
+    print(averagesd_D3_subpop)
+    
+    
+  }
+}
+
+
+```
+
+If the blue line (derived uncertainty interval) greater than other colours then we have better coverage.
+```{r,eval=TRUE,out.width = '100%'}
+library(RColorBrewer)
+
+names(coveragefacetdf)[which(names(coveragefacetdf)=="Var1")] = "Uncertainty Interval"
+names(coveragefacetdf)[which(names(coveragefacetdf)=="Var2")] = "Income Brackets"
+
+names(coveragefacetdf_subpop)[which(names(coveragefacetdf_subpop)=="Var1")] = "Uncertainty Interval"
+names(coveragefacetdf_subpop)[which(names(coveragefacetdf_subpop)=="Var2")] = "Income Brackets"
+
+names(bias_facetdf)[which(names(bias_facetdf)=="Var1")] = "Method"
+names(bias_facetdf)[which(names(bias_facetdf)=="Var2")] = "Income Brackets"
+names(bias_subpop_facetdf)[which(names(bias_subpop_facetdf)=="Var1")] = "Method"
+names(bias_subpop_facetdf)[which(names(bias_subpop_facetdf)=="Var2")] = "Income Brackets"
+
+names(var_facetdf)[which(names(var_facetdf)=="Var1")] = "Method"
+names(var_facetdf)[which(names(var_facetdf)=="Var2")] = "Income Brackets"
+names(var_subpop_facetdf)[which(names(var_subpop_facetdf)=="Var1")] = "Method"
+names(var_subpop_facetdf)[which(names(var_subpop_facetdf)=="Var2")] = "Income Brackets"
+
+
+  
+  
+
+
+
+coveragefacetdf$Dsize = factor(coveragefacetdf$Dsize,
+                               levels = c(500,1000,2000,4000),
+                               labels = c("n=500","n=1000","n=2000","n=4000"))
+
+coveragefacetdf$`Income Brackets` = factor(coveragefacetdf$`Income Brackets`,
+                                           levels = c(3,6,12,18),
+                                           labels = c("3 groups","6 groups","12 groups","18 groups"))
+
+coveragefacetdf_subpop$Dsize = factor(coveragefacetdf_subpop$Dsize,
+                                      levels = c(500,1000,2000,4000),
+                                      labels = c("n=500","n=1000","n=2000","n=4000"))
+
+coveragefacetdf_subpop$`Income Brackets` = factor(coveragefacetdf_subpop$`Income Brackets`,
+                                                  levels = c(3,6,12,18),
+                                                  labels = c("3 groups","6 groups","12 groups","18 groups"))
+
+
+bias_subpop_facetdf$`Income Brackets` = factor(bias_subpop_facetdf$`Income Brackets`,
+                                               levels = c(3,6,12,18),
+                                               labels = c("3 groups","6 groups","12 groups","18 groups"))
+var_subpop_facetdf$`Income Brackets` = factor(var_subpop_facetdf$`Income Brackets`,
+                                               levels = c(3,6,12,18),
+                                               labels = c("3 groups","6 groups","12 groups","18 groups"))
+
+
+
+bias_facetdf$`Income Brackets` = factor(bias_facetdf$`Income Brackets`,
+                                        levels = c(3,6,12,18),
+                                        labels = c("3 groups","6 groups","12 groups","18 groups"))
+var_facetdf$`Income Brackets` = factor(var_facetdf$`Income Brackets`,
+                                       levels = c(3,6,12,18),
+                                       labels = c("3 groups","6 groups","12 groups","18 groups"))
+
+
+
+
+bias_subpop_facetdf$Dsize = factor(bias_subpop_facetdf$Dsize,
+                                   levels = c(500,1000,2000,4000),
+                                   labels = c("n=500","n=1000","n=2000","n=4000")
+)
+var_subpop_facetdf$Dsize = factor(var_subpop_facetdf$Dsize,
+                                  levels = c(500,1000,2000,4000),
+                                  labels = c("n=500","n=1000","n=2000","n=4000")
+)
+
+
+bias_facetdf$Dsize = factor(bias_facetdf$Dsize,
+                                   levels = c(500,1000,2000,4000),
+                                   labels = c("n=500","n=1000","n=2000","n=4000")
+)
+var_facetdf$Dsize = factor(var_facetdf$Dsize,
+                                  levels = c(500,1000,2000,4000),
+                                  labels = c("n=500","n=1000","n=2000","n=4000")
+)
+
+
+
+mse_facetdf = bias_facetdf
+colnames(mse_facetdf)[which(colnames(mse_facetdf)=="value")] = "bias_squared"
+mse_facetdf = inner_join(x=mse_facetdf,y = var_facetdf,by=c("Method",
+                                                            "Income Brackets",
+                                                            "datatype",
+                                                            "Dsize",
+                                                            "ACSsize"))
+colnames(mse_facetdf)[which(colnames(mse_facetdf)=="value")] = "var"
+
+
+
+
+
+mse_subpop_facetdf = bias_subpop_facetdf
+colnames(mse_subpop_facetdf)[which(colnames(mse_subpop_facetdf)=="value")] = "bias_squared"
+mse_subpop_facetdf = inner_join(x=mse_subpop_facetdf,y = var_subpop_facetdf,by=c("Method",
+                                                                                 "Income Brackets",
+                                                                                 "datatype",
+                                                                                 "Dsize",
+                                                                                 "ACSsize"))
+colnames(mse_subpop_facetdf)[which(colnames(mse_subpop_facetdf)=="value")] = "var"
+
+```
+## Bias and variance of point estimates plot:
+
+```{r}
+# for (k in 1:3) {
+#   # # subpop mse,bias,var ####
+#   # plot(
+#   #   ggplot(
+#   #     data = bias_subpop_facetdf %>% 
+#   #       filter(
+#   #         datatype == paste0("D",k),
+#   #         `Income Brackets`!="18 groups"
+#   #       )) + 
+#   #     geom_line(size=0.8,
+#   #               aes(x=ACSsize,
+#   #                   y = sqrt(value),
+#   #                   colour=Method,
+#   #                   group=Method)) +
+#   #     facet_grid(rows = vars(Dsize), cols = vars(`Income Brackets`)) + 
+#   #     ggtitle("") +
+#   #     theme_minimal() +
+#   #     theme(legend.position="bottom",
+#   #           legend.box="vertical",
+#   #           text = element_text(size=25),
+#   #           axis.text.x = element_text(angle=45, hjust=1),
+#   #           strip.text.x = element_text(size = 25),
+#   #           strip.text.y = element_text(size = 25),
+#   #           legend.title = element_text(size = 25),
+#   #           panel.spacing = unit(2, "lines")
+#   #     ) + ylab("Absolute Bias") +
+#   #     xlab("ACS size") +  
+#   #     scale_colour_manual(values=c(`Sample Mean point estimates`="#4575b4",
+#   #                                  `Poststratified Sample Mean point estimates`="#d73027",
+#   #                                  `MRP point estimates`="#fdae61"))
+#   # )
+#   # ggsave(paste0("subpop_bias_D", k, ".png"), width = 18, height = 12)
+#   # 
+#   # 
+#   # plot(
+#   #   ggplot(
+#   #     data = var_subpop_facetdf %>% 
+#   #       filter(
+#   #         datatype == paste0("D",k),
+#   #         `Income Brackets`!="18 groups"
+#   #       )) + 
+#   #     geom_line(size=0.8,
+#   #               aes(x=ACSsize,
+#   #                   y = sqrt(value),
+#   #                   colour=Method,
+#   #                   group=Method)) +
+#   #     facet_grid(rows = vars(Dsize), cols = vars(`Income Brackets`)) + 
+#   #     ggtitle("") +
+#   #     theme_minimal() +
+#   #     theme(legend.position="bottom",
+#   #           legend.box="vertical",
+#   #           text = element_text(size=25),
+#   #           axis.text.x = element_text(angle=45, hjust=1),
+#   #           strip.text.x = element_text(size = 25),
+#   #           strip.text.y = element_text(size = 25),
+#   #           legend.title = element_text(size = 25),
+#   #           panel.spacing = unit(2, "lines")
+#   #     ) + ylab("Standard Deviation") +
+#   #     xlab("ACS size") +  
+#   #     scale_colour_manual(values=c(`Sample Mean point estimates`="#4575b4",
+#   #                                  `Poststratified Sample Mean point estimates`="#d73027",
+#   #                                  `MRP point estimates`="#fdae61"))
+#   # )
+#   # ggsave(paste0("subpop_var_D", k, ".png"), width = 18, height = 12)
+#   # 
+#   
+#   plot(
+#     ggplot(
+#       data = mse_subpop_facetdf %>% 
+#         filter(
+#           datatype == paste0("D",k),
+#           `Income Brackets`!="18 groups"
+#         )) + 
+#       geom_line(size=0.8,
+#                 aes(x=ACSsize,
+#                     y = sqrt(bias_squared + var),
+#                     colour=Method,
+#                     group=Method)) +
+#       facet_grid(rows = vars(Dsize), cols = vars(`Income Brackets`)) + 
+#       ggtitle("") +
+#       theme_minimal() +
+#       theme(legend.position="bottom",
+#             legend.box="vertical",
+#             text = element_text(size=25),
+#             axis.text.x = element_text(angle=45, hjust=1),
+#             strip.text.x = element_text(size = 25),
+#             strip.text.y = element_text(size = 25),
+#             legend.title = element_text(size = 25),
+#             panel.spacing = unit(2, "lines")
+#       ) + ylab("root MSE") +
+#       xlab("ACS size") +  
+#       scale_colour_manual(values=c(`Sample Mean point estimates`="#4575b4",
+#                                    `Poststratified Sample Mean point estimates`="#d73027",
+#                                    `MRP point estimates`="#fdae61"))
+#   )
+#   ggsave(paste0("subpop_mse_D", k, ".png"), width = 18, height = 12)
+#   
+#   # pop mse, bias, var ####
+#   #   plot(
+#   #   ggplot(
+#   #     data = bias_facetdf %>% 
+#   #       filter(
+#   #         datatype == paste0("D",k),
+#   #         `Income Brackets`!="18 groups"
+#   #       )) + 
+#   #     geom_line(size=0.8,
+#   #               aes(x=ACSsize,
+#   #                   y = sqrt(value),
+#   #                   colour=Method,
+#   #                   group=Method)) +
+#   #     facet_grid(rows = vars(Dsize), cols = vars(`Income Brackets`)) + 
+#   #     ggtitle("") +
+#   #     theme_minimal() +
+#   #     theme(legend.position="bottom",
+#   #           legend.box="vertical",
+#   #           text = element_text(size=25),
+#   #           axis.text.x = element_text(angle=45, hjust=1),
+#   #           strip.text.x = element_text(size = 25),
+#   #           strip.text.y = element_text(size = 25),
+#   #           legend.title = element_text(size = 25),
+#   #           panel.spacing = unit(2, "lines")
+#   #     ) + ylab("Absolute Bias") +
+#   #     xlab("ACS size") +  
+#   #     scale_colour_manual(values=c(`Sample Mean point estimates`="#4575b4",
+#   #                                  `Poststratified Sample Mean point estimates`="#d73027",
+#   #                                  `MRP point estimates`="#fdae61"))
+#   # )
+#   # ggsave(paste0("bias_D", k, ".png"), width = 18, height = 12)
+#   # 
+#   # 
+#   # plot(
+#   #   ggplot(
+#   #     data = var_facetdf %>% 
+#   #       filter(
+#   #         datatype == paste0("D",k),
+#   #         `Income Brackets`!="18 groups"
+#   #       )) + 
+#   #     geom_line(size=0.8,
+#   #               aes(x=ACSsize,
+#   #                   y = sqrt(value),
+#   #                   colour=Method,
+#   #                   group=Method)) +
+#   #     facet_grid(rows = vars(Dsize), cols = vars(`Income Brackets`)) + 
+#   #     ggtitle("") +
+#   #     theme_minimal() +
+#   #     theme(legend.position="bottom",
+#   #           legend.box="vertical",
+#   #           text = element_text(size=25),
+#   #           axis.text.x = element_text(angle=45, hjust=1),
+#   #           strip.text.x = element_text(size = 25),
+#   #           strip.text.y = element_text(size = 25),
+#   #           legend.title = element_text(size = 25),
+#   #           panel.spacing = unit(2, "lines")
+#   #     ) + ylab("Standard Deviation") +
+#   #     xlab("ACS size") +  
+#   #     scale_colour_manual(values=c(`Sample Mean point estimates`="#4575b4",
+#   #                                  `Poststratified Sample Mean point estimates`="#d73027",
+#   #                                  `MRP point estimates`="#fdae61"))
+#   # )
+#   # ggsave(paste0("var_D", k, ".png"), width = 18, height = 12)
+#   # 
+#   
+#   plot(
+#     ggplot(
+#       data = mse_facetdf %>% 
+#         filter(
+#           datatype == paste0("D",k),
+#           `Income Brackets`!="18 groups",
+#           Method != "Sample Mean point estimates",
+#           Method != "Poststratified Sample Mean point estimates"
+#         )) + 
+#       geom_line(size=0.8,
+#                 aes(x=ACSsize,
+#                     y = sqrt(bias_squared + var),
+#                     colour=Dsize,
+#                     linetype=datatype)) +
+#       facet_grid( cols = vars(`Income Brackets`)) + 
+#       ggtitle("") +
+#       theme_minimal() +
+#       theme(legend.position="bottom",
+#             legend.box="vertical",
+#             text = element_text(size=25),
+#             axis.text.x = element_text(angle=45, hjust=1),
+#             strip.text.x = element_text(size = 25),
+#             strip.text.y = element_text(size = 25),
+#             legend.title = element_text(size = 25),
+#             panel.spacing = unit(2, "lines")
+#       ) + ylab("root MSE") +
+#       xlab("ACS size")  
+#       # scale_colour_manual(values=c(`Sample Mean point estimates`="#4575b4",
+#       #                              `Poststratified Sample Mean point estimates`="#d73027",
+#       #                              `MRP point estimates`="#fdae61"))
+#   )
+#   ggsave(paste0("mse_D", k, ".png"), width = 18, height = 12)
+#   
+#   
+#   
+#   
+# }
+names(mse_facetdf)[which(names(mse_facetdf)=="Dsize")] = "MRP sample size"
+names(mse_facetdf)[which(names(mse_facetdf)=="datatype")] = "MRP sample data type"
+levels(mse_facetdf$`MRP sample data type`) = c("Representative", "Non-representative", "Very non-representative")
+
+plot(
+  ggplot(
+    data = mse_facetdf %>% 
+      filter(
+        `Income Brackets`!="18 groups",
+        Method != "Sample Mean point estimates",
+        Method != "Poststratified Sample Mean point estimates"
+      )) + 
+    geom_line(size=1,
+              alpha=0.8,
+              aes(x=ACSsize,
+                  y = sqrt(bias_squared + var),
+                  colour=`MRP sample size`,
+                  linetype=`MRP sample data type`)) +
+    facet_grid( cols = vars(`Income Brackets`)) + 
+    ggtitle("") +
+    theme_minimal() +
+    theme(legend.position="bottom",
+          legend.box="vertical",
+          text = element_text(size=25),
+          axis.text.x = element_text(angle=45, hjust=1),
+          strip.text.x = element_text(size = 25),
+          strip.text.y = element_text(size = 25),
+          legend.title = element_text(size = 25),
+          panel.spacing = unit(2, "lines")
+    ) + ylab("root MSE") +
+    xlab("ACS size") +  
+        scale_colour_manual(values=c(`n=1000`="orangered3",
+                                 `n=2000`="royalblue3",
+                                 `n=4000`="springgreen4"
+    ))
+)
+
+ggsave(paste0("mse_D.png"), width = 20, height = 10)
+
+
+
+names(mse_subpop_facetdf)[which(names(mse_subpop_facetdf)=="Dsize")] = "MRP sample size"
+names(mse_subpop_facetdf)[which(names(mse_subpop_facetdf)=="datatype")] = "MRP sample data type"
+levels(mse_subpop_facetdf$`MRP sample data type`) = c("Representative", "Non-representative", "Very non-representative")
+
+plot(
+  ggplot(
+    data = mse_subpop_facetdf %>% 
+      filter(
+        `Income Brackets`!="18 groups",
+        Method != "Sample Mean point estimates",
+        Method != "Poststratified Sample Mean point estimates"
+      )) + 
+    geom_line(size=1,
+              alpha=0.8,
+              aes(x=ACSsize,
+                  y = sqrt(bias_squared + var),
+                  colour=`MRP sample size`,
+                  linetype=`MRP sample data type`)) +
+    facet_grid( cols = vars(`Income Brackets`)) + 
+    ggtitle("") +
+    theme_minimal() +
+    theme(legend.position="bottom",
+          legend.box="vertical",
+          text = element_text(size=25),
+          axis.text.x = element_text(angle=45, hjust=1),
+          strip.text.x = element_text(size = 25),
+          strip.text.y = element_text(size = 25),
+          legend.title = element_text(size = 25),
+          panel.spacing = unit(2, "lines")
+    ) + ylab("root MSE") +
+    xlab("ACS size") +  
+        scale_colour_manual(values=c(`n=1000`="orangered3",
+                                 `n=2000`="royalblue3",
+                                 `n=4000`="springgreen4"
+    ))  
+)
+
+ggsave(paste0("mse_subpop_D.png"), width = 20, height = 10)
+
+```
+
+## Faceting by Dsize and Income brackets:
+
+```{r,eval=TRUE}
+# rename labels 
+names(coveragefacetdf)[which(names(coveragefacetdf)=="Dsize")] = "MRP sample size"
+
+
+plot(
+  ggplot(
+    data = coveragefacetdf %>% 
+      filter(`Uncertainty Interval`!="Coverage Naive MRP Var",
+             datatype == "D1",
+             `Income Brackets`!="18 groups",
+             `Uncertainty Interval`!="Coverage Naive Poststratification",
+             `Uncertainty Interval`!="Coverage Sample Mean"
+             )) + 
+    geom_hline(yintercept = 0,linetype = "dashed",size=0.5) +
+    geom_line(size=1.2,
+              alpha = 0.7,
+              aes(x=ACSsize,
+                  y = value - .95,
+                  colour=`Uncertainty Interval`,
+                  linetype = `MRP sample size`)) +
+    facet_grid(cols = vars(`Income Brackets`)) + 
+    ggtitle("") +
+    theme_minimal() +
+    theme(legend.position="bottom",
+          legend.box="vertical",
+      text = element_text(size=25),
+      axis.text.x = element_text(angle=45, hjust=1),
+      strip.text.x = element_text(size = 25),
+      strip.text.y = element_text(size = 25),
+      legend.title = element_text(size = 25),
+      panel.spacing = unit(2, "lines")
+    ) + ylab("Coverage - 0.95") +
+    xlab("ACS size") + 
+    scale_colour_manual(values=c(`Coverage Naive MRP Credible I`="red3",
+                               `Coverage Derived MRP Var`="navyblue"
+                               ))
+)
+
+ggsave("facetbyDsizeIncomebracket_fiveyearACS_D1_centered.png", width = 20, height = 10)
+
+
+
+
+plot(
+  ggplot(
+    data = coveragefacetdf %>% 
+      filter(`Uncertainty Interval`!="Coverage Naive MRP Var",
+             datatype == "D2",
+             `Income Brackets`!="18 groups",
+             `Uncertainty Interval`!="Coverage Naive Poststratification",
+             `Uncertainty Interval`!="Coverage Sample Mean"
+      )) + 
+    geom_hline(yintercept = 0,linetype = "dashed",size=0.5) +
+    geom_line(size=1.2,
+              alpha = 0.7,
+              aes(x=ACSsize,
+                  y = value - .95,
+                  colour=`Uncertainty Interval`,
+                  linetype = `MRP sample size`)) +
+    facet_grid(cols = vars(`Income Brackets`)) + 
+    ggtitle("") +
+    theme_minimal() +
+    theme(legend.position="bottom",
+          legend.box="vertical",
+          text = element_text(size=25),
+          axis.text.x = element_text(angle=45, hjust=1),
+          strip.text.x = element_text(size = 25),
+          strip.text.y = element_text(size = 25),
+          legend.title = element_text(size = 25),
+          panel.spacing = unit(2, "lines")
+    ) + ylab("Coverage - 0.95") +
+    xlab("ACS size") + 
+    scale_colour_manual(values=c(`Coverage Naive MRP Credible I`="red3",
+                                 `Coverage Derived MRP Var`="navyblue"
+    ))
+)
+
+ggsave("facetbyDsizeIncomebracket_fiveyearACS_D2_centered.png", width = 20, height = 10)
+
+
+
+plot(
+  ggplot(
+    data = coveragefacetdf %>% 
+      filter(`Uncertainty Interval`!="Coverage Naive MRP Var",
+             datatype == "D3",
+             `Income Brackets`!="18 groups",
+             `Uncertainty Interval`!="Coverage Naive Poststratification",
+             `Uncertainty Interval`!="Coverage Sample Mean"
+      )) + 
+    geom_hline(yintercept = 0,linetype = "dashed",size=0.5) +
+    geom_line(size=1.2,
+              alpha = 0.7,
+              aes(x=ACSsize,
+                  y = value - .95,
+                  colour=`Uncertainty Interval`,
+                  linetype = `MRP sample size`)) +
+    facet_grid(cols = vars(`Income Brackets`)) + 
+    ggtitle("") +
+    theme_minimal() +
+    theme(legend.position="bottom",
+          legend.box="vertical",
+          text = element_text(size=25),
+          axis.text.x = element_text(angle=45, hjust=1),
+          strip.text.x = element_text(size = 25),
+          strip.text.y = element_text(size = 25),
+          legend.title = element_text(size = 25),
+          panel.spacing = unit(2, "lines")
+    ) + ylab("Coverage - 0.95") +
+    xlab("ACS size") + 
+    scale_colour_manual(values=c(`Coverage Naive MRP Credible I`="red3",
+                                 `Coverage Derived MRP Var`="navyblue"
+    ))
+)
+
+ggsave("facetbyDsizeIncomebracket_fiveyearACS_D3_centered.png", width = 20, height = 10)
+
+
+```
+
+
+## Subpop
+
+```{r}
+names(coveragefacetdf_subpop)[which(names(coveragefacetdf_subpop)=="Dsize")] = "MRP sample size"
+
+plot(
+  ggplot(
+    data = coveragefacetdf_subpop %>% 
+      filter(
+        `Uncertainty Interval`!="Coverage Naive MRP Var",
+        datatype == "D1",
+        `Income Brackets`!="18 groups",
+        `Uncertainty Interval`!="Coverage Naive Poststratification",
+        `Uncertainty Interval`!="Coverage Sample Mean"
+      )
+  ) + 
+    geom_hline(yintercept = 0,linetype = "dashed",size=0.5) +
+    geom_line(size=1.2,
+              alpha = 0.7,
+              aes(x=ACSsize,
+                  y = value - .95,
+                  colour=`Uncertainty Interval`,
+                  linetype = `MRP sample size`)) +
+    facet_grid(cols = vars(`Income Brackets`)) + 
+    ggtitle("") +
+    theme_minimal() +
+    theme(legend.position="bottom",
+          legend.box="vertical",
+          text = element_text(size=25),
+          axis.text.x = element_text(angle=45, hjust=1),
+          strip.text.x = element_text(size = 25),
+          strip.text.y = element_text(size = 25),
+          legend.title = element_text(size = 25),
+          panel.spacing = unit(2, "lines")
+    ) + ylab("Coverage - 0.95") +
+    xlab("ACS size") + 
+    scale_colour_manual(values=c(`Coverage Naive MRP Credible I`="red3",
+                                 `Coverage Derived MRP Var`="navyblue"
+    )) 
+)
+
+ggsave("facetbyDsizeIncomebracket_fiveyearACS_D1_subpop_centered.png", width = 20, height = 10)
+
+
+
+
+plot(
+  ggplot(
+    data = coveragefacetdf_subpop %>% 
+      filter(
+        `Uncertainty Interval`!="Coverage Naive MRP Var",
+        datatype == "D2",
+        `Income Brackets`!="18 groups",
+        `Uncertainty Interval`!="Coverage Naive Poststratification",
+        `Uncertainty Interval`!="Coverage Sample Mean"
+      )
+  ) + 
+    geom_hline(yintercept = 0,linetype = "dashed",size=0.5) +
+    geom_line(size=1.2,
+              alpha = 0.7,
+              aes(x=ACSsize,
+                  y = value - .95,
+                  colour=`Uncertainty Interval`,
+                  linetype = `MRP sample size`)) +
+    facet_grid(cols = vars(`Income Brackets`)) + 
+    ggtitle("") +
+    theme_minimal() +
+    theme(legend.position="bottom",
+          legend.box="vertical",
+          text = element_text(size=25),
+          axis.text.x = element_text(angle=45, hjust=1),
+          strip.text.x = element_text(size = 25),
+          strip.text.y = element_text(size = 25),
+          legend.title = element_text(size = 25),
+          panel.spacing = unit(2, "lines")
+    ) + ylab("Coverage - 0.95") +
+    xlab("ACS size") + 
+    scale_colour_manual(values=c(`Coverage Naive MRP Credible I`="red3",
+                                 `Coverage Derived MRP Var`="navyblue"
+    )) 
+)
+
+ggsave("facetbyDsizeIncomebracket_fiveyearACS_D2_subpop_centered.png", width = 20, height = 10)
+
+
+plot(
+  ggplot(
+    data = coveragefacetdf_subpop %>% 
+      filter(
+        `Uncertainty Interval`!="Coverage Naive MRP Var",
+        datatype == "D3",
+        `Income Brackets`!="18 groups",
+        `Uncertainty Interval`!="Coverage Naive Poststratification",
+        `Uncertainty Interval`!="Coverage Sample Mean"
+      )
+  ) + 
+    geom_hline(yintercept = 0,linetype = "dashed",size=0.5) +
+    geom_line(size=1.2,
+              alpha = 0.7,
+              aes(x=ACSsize,
+                  y = value - .95,
+                  colour=`Uncertainty Interval`,
+                  linetype = `MRP sample size`)) +
+    facet_grid(cols = vars(`Income Brackets`)) + 
+    ggtitle("") +
+    theme_minimal() +
+    theme(legend.position="bottom",
+          legend.box="vertical",
+          text = element_text(size=25),
+          axis.text.x = element_text(angle=45, hjust=1),
+          strip.text.x = element_text(size = 25),
+          strip.text.y = element_text(size = 25),
+          legend.title = element_text(size = 25),
+          panel.spacing = unit(2, "lines")
+    ) + ylab("Coverage - 0.95") +
+    xlab("ACS size") + 
+    scale_colour_manual(values=c(`Coverage Naive MRP Credible I`="red3",
+                                 `Coverage Derived MRP Var`="navyblue"
+    )) 
+)
+
+ggsave("facetbyDsizeIncomebracket_fiveyearACS_D3_subpop_centered.png", width = 20, height = 10)
+
+
+
+```
