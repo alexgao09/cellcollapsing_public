@@ -6,7 +6,7 @@ Repository for Chapter 4 of my PhD thesis: "When should we collapse cells for Mu
 - Lauren Kennedy
 - Daniel Simpson
 
-# Steps to reproduce results in the interval coverage case study (Section 5.1 in the manuscript)
+# Steps to reproduce results in the interval coverage Monte Carlo case study (Section 5.1 in the manuscript)
 
 Figures 2-7, 11, 12 are produced with the below steps:
 
