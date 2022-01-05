@@ -22,7 +22,7 @@ Figures 2-7, 11, 12 are produced with the below steps:
   
 Produce simulation data files based on 1000 simulation iterations for all 9 combinations of main survey size = ```1000, 2000, 4000``` and auxillary survey size = ```15*55, 25*55, 50*55```.
 
-3. Run ```visualizesimulations_logRENTcentered_v4.Rmd``` with the settings below to visualize MRP interval coverage for the 9 simulation settings in step 1:
+3. Run ```visualizesimulations_logRENTcentered_v4.Rmd``` with the settings below to visualize MRP interval coverage for the 9 simulation settings in step 2:
 
 ```
 ACSstratasizevec = c(15,25,50)
@@ -35,6 +35,8 @@ Dsizevec = c(1000,2000,4000)
 - Step 2 should be run in 9 parallel processes for speed. 
 
 # Steps to reproduce results in the cell collapsing case study (Section 5.2 in the manuscript)
+
+1. 
 
 # References
 
