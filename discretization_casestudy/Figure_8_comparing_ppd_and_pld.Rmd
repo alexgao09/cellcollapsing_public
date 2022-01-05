@@ -1,0 +1,501 @@
+---
+title: "Recreating Figure 8 in the manuscript: When should we collapse cells for Multilevel Regression and Poststratification?"
+author: "Yuxiang Gao"
+date: "08/09/2021"
+output: html_document
+---
+
+# Caption of Figure 8
+
+Target estimand is the population mean, which is 0. Variance terms 1,2,3 are the first, second and third terms in Equation 8. The total is the sum of the three terms. They are evaluated across J income groups, where J = 3, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100. The main survey size is 1000. The representativeness of the main survey ranges from the left column to the right column. The size of auxiliary survey ranges from 165 in the top row (0.12 percent of the population) to 825 in the bottom row (0.6 percent of the population). Each of the nine subplots uses a single sample of the main survey for all the settings of J. The MRP distribution used is $N^{-1} \sum_{j=1}^J \hat{N}_j \hat{\theta}_j$ The hierarchical model used is in Equation 16. Poststratifying posterior predictive distribution corresponds to $(\hat{\theta}_j)_{j=1}^J$ being posterior predictive distributions for each of the J income groups, and Poststratifying posterior linear predictor corresponds to $(\hat{\theta}_j)_{j=1}^J$ eing the posterior linear predictors for each of the J income groups. This manuscript solely has analysis and conclusions based on using posterior linear predictors, with the exception of this current figure.
+
+## Put the packages in
+
+```{r}
+set.seed(30628)
+library(tidyverse)
+library(brms)
+library(tidybayes)
+library(survey)
+
+# p changes the representativeness of the main survey D. p = 0.5 is the most representative
+p = 0.75
+# Dsize is nonrep sample size
+Dsize = 1000
+# ACSstratasize is the size of random sample in each PUMA strata when performing a stratified random sample of P
+ACSstratasize = 3
+
+se_posteriorpredict = TRUE # if TRUE then poststratify posterior predictive
+```
+
+## Pull in the data and fix things
+
+```{r}
+nystate = readRDS("nystate_fiveyear2015_2019.rds")
+
+# five counties in new york city
+P = nystate %>% 
+  filter(COUNTYFIP %in% c(61,47,81,5,85) & 
+           (RENT > 0) & 
+           (INCTOT > 0) & 
+           !(INCTOT %in% c(9999998,9999999))) %>% 
+  select(RENT, INCTOT, PUMA, SEX, AGE, RACE, EDUC)
+
+# make age into 5 categories, race into 5 categories, educational attainment into 5 categories, sex as binary variable
+P  = P %>% mutate(
+  age_fivegroups = cut(
+    P$AGE,
+    breaks = c(min(P$AGE),21,40,65,80,max(P$AGE)),
+    include.lowest = TRUE,
+    labels = 1:5),
+  race_fivegroups = case_when(RACE == 1 ~ 1,
+                              RACE == 2 ~ 2,
+                              RACE == 3 ~ 3,
+                              RACE %in% c(4,5,6) ~ 4,
+                              RACE %in% c(7,8,9) ~ 5),
+  edu_fivegroups = case_when(EDUC == 0 ~ 1,
+                             EDUC %in% c(1,2) ~ 2,
+                             EDUC %in% c(3,4,5,6) ~ 3,
+                             EDUC %in% c(7,8,9,10) ~ 4,
+                             EDUC == 11 ~ 5),
+  sex_binary = case_when(SEX == 1 ~ 0,
+                         SEX == 2 ~ 1)
+)
+
+# convert covariates to factors 
+P$age_fivegroups = as.factor(P$age_fivegroups)
+P$race_fivegroups = as.factor(P$race_fivegroups)
+P$edu_fivegroups = as.factor(P$edu_fivegroups)
+
+
+P$index = 1:(dim(P)[1])
+
+P$logRENTcentered = log(P$RENT) - mean(log(P$RENT))
+
+## get population sizes of PUMA in P
+P_PUMAsize = P %>% group_by(PUMA) %>% summarise(N = n()) %>% mutate(fraction = N/sum(N))
+
+# Define probs to do PPSWOR for D2
+P$INCTOTprobD2 = 0
+P[P$INCTOT<=median(P$INCTOT), c("INCTOTprobD2")] = p
+P[P$INCTOT>median(P$INCTOT), c("INCTOTprobD2")] = 1-p
+
+
+# sample D2
+D2indices = sample(x=1:dim(P)[1],
+                   prob=P$INCTOTprobD2,
+                   replace=FALSE,
+                   size=Dsize)
+
+D2 = P[D2indices,]
+
+# ACS sample S without inclusion probs and defining incomebracket ####
+pseudoACS_unweighted_beforeloop = c()
+
+# Get stratified sample pseudoACS_unweighted, where strata are PUMA
+for (PUMA_ in P_PUMAsize$PUMA) {
+  pseudoACS_unweighted_beforeloop = rbind(pseudoACS_unweighted_beforeloop,
+                               P %>% filter(PUMA==PUMA_) %>% sample_n(ACSstratasize)
+  )
+}
+
+rm(D2indices,nystate,PUMA_)
+gc()
+
+
+
+main_survey = D2 %>% mutate(logRent = RENT, 
+                             logINCTOT = log(INCTOT))
+population = P %>% mutate(logRent = RENT, 
+                           logINCTOT = log(INCTOT))
+aux_survey = pseudoACS_unweighted_beforeloop %>% 
+  mutate(logRent = RENT, 
+         logINCTOT = log(INCTOT)) %>%
+  left_join(P_PUMAsize, by = "PUMA") %>%
+  rename(puma_size = N)
+rm(D2, P, pseudoACS_unweighted_beforeloop, P_PUMAsize)
+gc()
+
+```
+
+## Do this for a single J
+
+```{r, message = FALSE}
+mrp_sd_posteriorpredict = function(J, 
+                                    main_survey_ = main_survey, 
+                                    aux_survey_ = aux_survey, 
+                                    population_ = population){
+  ## make the income_level variable
+  main_survey_ = main_survey_ %>% mutate(
+    income_bracket = cut(
+      main_survey_$INCTOT,
+      breaks=quantile(population_$INCTOT, 
+                      probs = seq(0,1,by=1/J)),
+      include.lowest = TRUE,
+      labels = 1:J)
+  )
+  
+  aux_survey_= aux_survey_ %>% mutate(
+    income_bracket = cut(
+      INCTOT,
+      breaks = quantile(population_$INCTOT,
+                        probs = seq(0,1,by = 1/J)),
+      include.lowest = TRUE,
+      labels = 1:J)
+  )
+  
+  ## not needed, just for checking against correct Nj
+  population_ = population_ %>% mutate(
+    income_bracket = cut(
+      population_$INCTOT,
+      breaks = quantile(population_$INCTOT,
+                        probs = seq(0,1,by = 1/J)),
+      include.lowest = TRUE,
+      labels = 1:J)
+  )
+  
+  poststrat_true = population_ %>% 
+    group_by(income_bracket) %>%
+    summarise(Nj = n()) %>%
+    ungroup()
+  
+  
+  ## Estimate Nj_hat from the aux survey and compute covariance matrix
+  
+  margins = population_ %>% group_by(PUMA) %>% summarise(Freq=n())
+  
+  aux_design = svydesign(id = ~1,
+                          strata = ~PUMA,
+                          data = aux_survey_,
+                          fpc = ~puma_size)
+  
+  aux_rake = rake(design = aux_design,
+                   list(~PUMA),
+                   list(margins))
+  
+  Nj_hat = svytotal(~income_bracket, aux_rake)
+  
+  Nj_cov = vcov(Nj_hat)
+  
+  
+  ## We would usually have to do a join here, but there's only one
+  ## covariate in the model so we don't!
+  poststrat = Nj_hat %>%
+    coef %>%
+    enframe() %>%
+    mutate(income_bracket = stringr::str_extract(name, "[0-9]+")) %>%
+    rename(Nj_hat = value) %>%
+    select(-name)
+  
+  ## Estimate multilevel model
+  bye = capture.output(
+    mod <- brm(formula = logRENTcentered ~ (1 | income_bracket),
+               prior = c(
+                 prior(normal(0, 5), class=Intercept), # change sd to 2
+                 prior(normal(0, 5), class = sd),
+                 prior(normal(0, 5), class = sigma)
+               ),
+               data = main_survey_,
+               chains=4,
+               cores=4,
+               refresh = 0,
+               backend = "cmdstanr",
+               
+    ), type = "output")
+  
+  ## Poststrat (both with Nj and Nj_hat just for checking)
+
+  prediction = posterior_predict(mod, 
+                                  newdata = poststrat,
+                                  allow_new_levels = TRUE)
+
+  
+  
+  prediction_ps = apply( prediction, 1, function(x){
+    sum(poststrat$Nj_hat * x) / sum(poststrat$Nj_hat)
+  })
+  
+  prediction_ps_true = apply( prediction, 1, function(x){
+    sum(poststrat_true$Nj * x) / sum(poststrat_true$Nj)
+  })
+  
+  
+  aux_replicates = as.svrepdesign(aux_rake, type = "bootstrap")
+  aux_replicates_rake = rake(design = aux_replicates,
+                   list(~PUMA),
+                   list(margins))
+  Nj_hat_replicate = svytotal(~income_bracket, aux_replicates_rake, return.replicates = TRUE)$replicates 
+  
+  prediction_ps_replicate = c()
+  for(rep in 1: nrow(Nj_hat_replicate)){
+    prediction_ps_replicate = c(prediction_ps_replicate, 
+                                 apply( prediction, 1, function(x){
+    sum(Nj_hat_replicate[rep,] * x) / sum(Nj_hat_replicate[rep,])
+    }))
+  }
+  
+  ## Organise the output
+  N = length(population_$logRENTcentered)
+  theta_mean = colMeans(prediction)
+  theta_cov = cov(prediction)
+  
+  tibble(mean_logRENT = mean(prediction_ps),
+         mean_logRENT_true = mean(prediction_ps_true),
+         poststrat_variance_trueNj = var(prediction_ps_true),
+         poststrat_variance_estNj = var(prediction_ps),
+         poststrat_variance_replicatewts = var(prediction_ps_replicate),
+         term1 = sum(diag(theta_cov %*% Nj_cov)) / N^2,
+         term2 = (t(poststrat$Nj_hat) %*% theta_cov %*% poststrat$Nj_hat) / N^2,
+         term3 = (t(theta_mean) %*% Nj_cov %*% theta_mean) / N^2,
+         total = term1 + term2 + term3,
+         sigma = mod %>% spread_draws(sigma) %>% select(sigma) %>% unlist %>% mean
+         )
+}
+
+#mrp_sd_posteriorpredict(3)
+
+
+
+
+
+
+mrp_sd_linpred = function(J, 
+                           main_survey_ = main_survey, 
+                           aux_survey_ = aux_survey, 
+                           population_ = population){
+  ## make the income_level variable
+  main_survey_ = main_survey_ %>% mutate(
+    income_bracket = cut(
+      main_survey_$INCTOT,
+      breaks=quantile(population_$INCTOT, 
+                      probs = seq(0,1,by=1/J)),
+      include.lowest = TRUE,
+      labels = 1:J)
+  )
+  
+  aux_survey_= aux_survey_ %>% mutate(
+    income_bracket = cut(
+      INCTOT,
+      breaks = quantile(population_$INCTOT,
+                        probs = seq(0,1,by = 1/J)),
+      include.lowest = TRUE,
+      labels = 1:J)
+  )
+  
+  ## not needed, just for checking against correct Nj
+  population_ = population_ %>% mutate(
+    income_bracket = cut(
+      population_$INCTOT,
+      breaks = quantile(population_$INCTOT,
+                        probs = seq(0,1,by = 1/J)),
+      include.lowest = TRUE,
+      labels = 1:J)
+  )
+  
+  poststrat_true = population_ %>% 
+    group_by(income_bracket) %>%
+    summarise(Nj = n()) %>%
+    ungroup()
+  
+  
+  ## Estimate Nj_hat from the aux survey and compute covariance matrix
+  
+  margins = population_ %>% group_by(PUMA) %>% summarise(Freq=n())
+  
+  aux_design = svydesign(id = ~1,
+                          strata = ~PUMA,
+                          data = aux_survey_,
+                          fpc = ~puma_size)
+  
+  aux_rake = rake(design = aux_design,
+                   list(~PUMA),
+                   list(margins))
+  
+  Nj_hat = svytotal(~income_bracket, aux_rake)
+  
+  Nj_cov = vcov(Nj_hat)
+  
+  
+  ## We would usually have to do a join here, but there's only one
+  ## covariate in the model so we don't!
+  poststrat = Nj_hat %>%
+    coef %>%
+    enframe() %>%
+    mutate(income_bracket = stringr::str_extract(name, "[0-9]+")) %>%
+    rename(Nj_hat = value) %>%
+    select(-name)
+  
+  ## Estimate multilevel model
+  bye = capture.output(
+    mod <- brm(formula = logRENTcentered ~ (1 | income_bracket),
+               prior = c(
+                 prior(normal(0, 5), class=Intercept), # change sd to 2
+                 prior(normal(0, 5), class = sd),
+                 prior(normal(0, 5), class = sigma)
+               ),
+               data = main_survey_,
+               chains=4,
+               cores=4,
+               refresh = 0,
+               backend = "cmdstanr",
+               
+    ), type = "output")
+  
+  ## Poststrat (both with Nj and Nj_hat just for checking)
+
+  prediction = posterior_linpred(mod, 
+                                  newdata = poststrat,
+                                  allow_new_levels = TRUE)
+
+  
+  
+  prediction_ps = apply( prediction, 1, function(x){
+    sum(poststrat$Nj_hat * x) / sum(poststrat$Nj_hat)
+  })
+  
+  prediction_ps_true = apply( prediction, 1, function(x){
+    sum(poststrat_true$Nj * x) / sum(poststrat_true$Nj)
+  })
+  
+  # Lauren: I am going to use raw replicate weights
+  
+  aux_replicates = as.svrepdesign(aux_rake, type = "bootstrap")
+  aux_replicates_rake = rake(design = aux_replicates,
+                   list(~PUMA),
+                   list(margins))
+  Nj_hat_replicate = svytotal(~income_bracket, aux_replicates_rake, return.replicates = TRUE)$replicates 
+  
+  prediction_ps_replicate = c()
+  for(rep in 1: nrow(Nj_hat_replicate)){
+    prediction_ps_replicate = c(prediction_ps_replicate, 
+                                 apply( prediction, 1, function(x){
+    sum(Nj_hat_replicate[rep,] * x) / sum(Nj_hat_replicate[rep,])
+    }))
+  }
+  
+  ## Organise the output
+  N = length(population_$logRENTcentered)
+  theta_mean = colMeans(prediction)
+  theta_cov = cov(prediction)
+  
+  tibble(mean_logRENT = mean(prediction_ps),
+         mean_logRENT_true = mean(prediction_ps_true),
+         poststrat_variance_trueNj = var(prediction_ps_true),
+         poststrat_variance_estNj = var(prediction_ps),
+         poststrat_variance_replicatewts = var(prediction_ps_replicate),
+         term1 = sum(diag(theta_cov %*% Nj_cov)) / N^2,
+         term2 = (t(poststrat$Nj_hat) %*% theta_cov %*% poststrat$Nj_hat) / N^2,
+         term3 = (t(theta_mean) %*% Nj_cov %*% theta_mean) / N^2,
+         total = term1 + term2 + term3)
+}
+
+
+```
+
+
+## Ok now let's run it 
+
+```{r}
+est = tibble(J = c(3, seq(10, 100, by = 10))) %>%
+  mutate(out = purrr::map(J, mrp_sd_posteriorpredict)) %>% 
+  unnest(out)
+
+
+est_linpred = tibble(J = c(3, seq(10, 100, by = 10))) %>%
+  mutate(out = purrr::map(J, mrp_sd_linpred)) %>% 
+  unnest(out)
+#write_csv(est, file = "lauren_est.csv")              
+
+saveRDS(
+  rbind(
+    tibble(est %>% select(J, term1,term2,term3,total), Type = "Poststratifying posterior predictive distribution"),
+    tibble(est_linpred %>% select(J, term1,term2,term3,total), Type = "Poststratifying posterior linear predictor")
+  ),
+  file=paste0("comparing_linpred_pp_",Dsize,"_",ACSstratasize,"_",p*100,".rds"),
+)
+```
+
+# The below chunk of code creates Figure 8 after the following files are generated:
+
+$\text{comparing_linpred_pp_1000_3_90.rds}$
+
+$\text{comparing_linpred_pp_1000_3_75.rds}$
+
+$\text{comparing_linpred_pp_1000_3_50.rds}$
+
+$\text{comparing_linpred_pp_1000_8_90.rds}$
+
+$\text{comparing_linpred_pp_1000_8_75.rds}$
+
+$\text{comparing_linpred_pp_1000_8_50.rds}$
+
+$\text{comparing_linpred_pp_1000_15_90.rds}$
+
+$\text{comparing_linpred_pp_1000_15_75.rds}$
+
+$\text{comparing_linpred_pp_1000_15_50.rds}$
+
+
+
+```{r, message = FALSE, warning = FALSE, eval = FALSE}
+
+
+
+comparing_linpred_pp_1000_3_90 = readRDS("comparing_linpred_pp_1000_3_90.rds")
+comparing_linpred_pp_1000_3_75 = readRDS("comparing_linpred_pp_1000_3_75.rds")
+comparing_linpred_pp_1000_3_50 = readRDS("comparing_linpred_pp_1000_3_50.rds")
+
+comparing_linpred_pp_1000_8_90 = readRDS("comparing_linpred_pp_1000_8_90.rds")
+comparing_linpred_pp_1000_8_75 = readRDS("comparing_linpred_pp_1000_8_75.rds")
+comparing_linpred_pp_1000_8_50 = readRDS("comparing_linpred_pp_1000_8_50.rds")
+
+comparing_linpred_pp_1000_15_90 = readRDS("comparing_linpred_pp_1000_15_90.rds")
+comparing_linpred_pp_1000_15_75 = readRDS("comparing_linpred_pp_1000_15_75.rds")
+comparing_linpred_pp_1000_15_50 = readRDS("comparing_linpred_pp_1000_15_50.rds")
+
+comparing_linpred_pp = rbind(tibble(comparing_linpred_pp_1000_3_90, `Main survey type` = "Very nonrepresentative", `Aux. survey size` = 165),
+                             tibble(comparing_linpred_pp_1000_3_75, `Main survey type` = "Nonrepresentative", `Aux. survey size` = 165),
+                             tibble(comparing_linpred_pp_1000_3_50, `Main survey type` = "Representative", `Aux. survey size` = 165),
+                             
+                             tibble(comparing_linpred_pp_1000_8_90, `Main survey type` = "Very nonrepresentative", `Aux. survey size` = 440),
+                             tibble(comparing_linpred_pp_1000_8_75, `Main survey type` = "Nonrepresentative", `Aux. survey size` = 440),
+                             tibble(comparing_linpred_pp_1000_8_50, `Main survey type` = "Representative", `Aux. survey size` = 440),
+                             
+                             tibble(comparing_linpred_pp_1000_15_90, `Main survey type` = "Very nonrepresentative", `Aux. survey size` = 825),
+                             tibble(comparing_linpred_pp_1000_15_75, `Main survey type` = "Nonrepresentative", `Aux. survey size` = 825),
+                             tibble(comparing_linpred_pp_1000_15_50, `Main survey type` = "Representative", `Aux. survey size` = 825)
+                             )
+
+
+names(comparing_linpred_pp)[names(comparing_linpred_pp)=="term1"] = "Term 1"
+names(comparing_linpred_pp)[names(comparing_linpred_pp)=="term2"] = "Term 2"
+names(comparing_linpred_pp)[names(comparing_linpred_pp)=="term3"] = "Term 3"
+names(comparing_linpred_pp)[names(comparing_linpred_pp)=="total"] = "Total"
+comparing_linpred_pp$`Main survey type` = factor(comparing_linpred_pp$`Main survey type`, levels = c("Representative",
+                                                                                                     "Nonrepresentative", 
+                                                                                                     "Very nonrepresentative"))
+
+
+comparing_linpred_pp %>% pivot_longer(-c(J,Type,`Main survey type`, `Aux. survey size`)) %>% 
+  ggplot(aes(x = J, y = value, colour = name, linetype = Type)) +
+  geom_line(alpha = .9,size=1) + scale_y_log10() +
+  facet_grid(`Aux. survey size`~`Main survey type`) +
+  ylab("log-scaled variance term") + 
+  ggtitle("") + 
+  theme_minimal() +
+  theme(legend.position="bottom",
+        legend.box="vertical",
+        text = element_text(size=25),
+        axis.text.x = element_text(angle=45, hjust=1),
+        strip.text.x = element_text(size = 25),
+        strip.text.y = element_text(size = 25),
+        legend.title = element_text(size = 25),
+        panel.spacing = unit(2, "lines")
+  ) + labs(color='Variance term') + scale_colour_manual(values=c("Total"="#D55E00",
+                                                                 "Term 1"= "#009E73",
+                                                                 "Term 2"="#0072B2",
+                                                                 "Term 3"="#CC79A7"))
+
+
+ggsave(paste0("comparing_linpred_pp_1000_3_8_15.png"), width = 18, height = 14)
+```
