@@ -19,3 +19,5 @@ Figures 2-7, 11, 12 are produced with the below steps:
 
   
 Produce simulation data files based on 1000 simulation iterations for all 9 combinations of main survey size = ```1000, 2000, 4000``` and auxillary survey size = ```15*55, 25*55, 50*55```.
+
+2. 
