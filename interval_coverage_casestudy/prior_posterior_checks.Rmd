@@ -1,0 +1,259 @@
+---
+title: "Prior and Posterior Predictive checks"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This RMD file produces Figure 1 in Chapter 4 of my PhD thesis: When should we collapse cells for Multilevel Regression and Poststratification?
+
+## Posterior predictive check for $J = 12$ income brackets where response is RENT, for representative dataset of size 2000, $D_1$
+
+```{r,echo=FALSE}
+library(tidyverse)
+library(brms)
+library(tidybayes)
+library(survey)
+library(bayesplot)
+
+# v1 contains logRENTcentered
+
+# get NY state 
+# https://data.census.gov/cedsci/table?q=United%20States&g=0400000US36&y=2019&tid=ACSST1Y2019.S0101
+#nystate = ddi %>% filter(STATEFIP==36)
+nystate = readRDS("nystate_fiveyear2015_2019.rds")
+
+
+J = 3
+Dsize = 1000
+
+#### STEP 1: CREATE TARGET POPULATION P #####
+# TARGET POPULATION P has covariate INCTOT and true values RENT. PUMA is used to perform stratified sampling
+# The ppl of NY county are used 
+# OUTPUT: P as a dataframe, estimand as average log rent in P.
+
+
+# P is New York City without survey weights
+# COUNTYFIP: 61=New York county, 47=Kings county, 81=Queens county, 5=Bronx county, 85=Richmond county
+P = nystate %>% 
+  filter(COUNTYFIP %in% c(61,47,81,5,85) & RENT > 0 & (INCTOT > 0) & !(INCTOT %in% c(9999998,9999999))) %>% 
+  select(RENT, INCTOT, PUMA)
+
+P$logRENTcentered = log(P$RENT) - mean(log(P$RENT))
+
+# get population sizes of PUMA in P
+P_PUMAsize = P %>% group_by(PUMA) %>% summarise(N = n())
+
+# Define probs to do PPSWOR for D1,D2,D3
+P$INCTOTprobD1 = 0
+P[P$INCTOT<=median(P$INCTOT), c("INCTOTprobD1")] = 0.5
+P[P$INCTOT>median(P$INCTOT), c("INCTOTprobD1")] = 0.5
+P$INCTOTprobD2 = 0
+P[P$INCTOT<=median(P$INCTOT), c("INCTOTprobD2")] = 0.75
+P[P$INCTOT>median(P$INCTOT), c("INCTOTprobD2")] = 0.25
+P$INCTOTprobD3 = 0
+P[P$INCTOT<=median(P$INCTOT), c("INCTOTprobD3")] = 0.9
+P[P$INCTOT>median(P$INCTOT), c("INCTOTprobD3")] = 0.1
+
+# P$INCTOTprobD3 = 0
+# P[P$INCTOT<=20000, c("INCTOTprobD3")] = 0.9
+# P[P$INCTOT>20000, c("INCTOTprobD3")] = 0.1
+
+
+# create J incomebrackets in target population P
+P$incomebracket = cut(P$INCTOT,
+                      breaks=quantile(x=P$INCTOT, probs = seq(0,1, by=1/J)),
+                      include.lowest = TRUE
+)
+
+# rename incomebracket levels
+levels(P$incomebracket) = 1:J
+
+
+# sample D1
+D1indices = sample(x=1:dim(P)[1],
+                   prob=P$INCTOTprobD1,
+                   replace=FALSE,
+                   size=Dsize)
+
+D1 = P[D1indices,]
+# sample D2
+D2indices = sample(x=1:dim(P)[1],
+                   prob=P$INCTOTprobD2,
+                   replace=FALSE,
+                   size=Dsize)
+
+D2 = P[D2indices,]
+# sample D3
+D3indices = sample(x=1:dim(P)[1],
+                   prob=P$INCTOTprobD3,
+                   replace=FALSE,
+                   size=Dsize)
+
+D3 = P[D3indices,]
+```
+
+```{r}
+# Posterior predictive check D1
+model_D1_check_log = brm(formula = logRENTcentered ~ (1|incomebracket),
+               prior = c(
+                 prior(normal(0, 5), class=Intercept), 
+                 prior(normal(0, 5), class = sd),
+                 prior(normal(0, 5), class = sigma)
+               ),
+               data = D1,
+               chains=1,
+               cores=1,
+               #control = list(adapt_delta = 0.95), 
+               #sample_prior="only"
+               )
+
+yrep_fit_posterior_D1_log <- posterior_predict(model_D1_check_log)
+
+#complete_yrep_fit_posterior=yrep_fit_posterior_D1[complete.cases(yrep_fit_posterior_D1),]
+
+# 200 prior simulations
+complete_yrep_fit_posterior_f_D1_log=yrep_fit_posterior_D1_log[1:200,]
+
+# below is from bayesplot
+ppc_dens_overlay(D1$logRENTcentered,
+                 complete_yrep_fit_posterior_f_D1_log) +
+  xlab("log(RENT)") + ylab("Density") + ggtitle("Posterior predictive check D1")
+```
+
+
+
+```{r}
+# prior predictive check D1
+model_D1_check_log = brm(formula = logRENTcentered ~ (1|incomebracket),
+               prior = c(
+                 prior(normal(0, 5), class=Intercept), 
+                 prior(normal(0, 5), class = sd),
+                 prior(normal(0, 5), class = sigma)
+               ),
+               data = D1,
+               chains=1,
+               cores=1,
+               control = list(adapt_delta = 0.95), 
+               sample_prior="only"
+               )
+
+yrep_fit_posterior_D1_log <- posterior_predict(model_D1_check_log)
+
+#complete_yrep_fit_posterior=yrep_fit_posterior_D1[complete.cases(yrep_fit_posterior_D1),]
+
+# 200 prior simulations
+complete_yrep_fit_posterior_f_D1_log=yrep_fit_posterior_D1_log[1:200,]
+
+# below is from bayesplot
+ppc_dens_overlay(D1$logRENTcentered,
+                 complete_yrep_fit_posterior_f_D1_log) +
+  xlab("log(RENT)") + ylab("Density") + ggtitle("Prior predictive check D1")
+```
+
+# Prior/Posterior predictive check for $J = 12$ income brackets where response is logRENTcentered, for nonrepresentative dataset $D_3$
+
+```{r}
+# Posterior predictive check
+
+model_D3_check_log = brm(formula = logRENTcentered ~ (1|incomebracket),
+               prior = c(
+                 prior(normal(0, 5), class=Intercept), 
+                 prior(normal(0, 5), class = sd),
+                 prior(normal(0, 5), class = sigma)
+               ),
+               data = D3,
+               chains=1,
+               cores=1,
+               control = list(adapt_delta = 0.95), 
+               #sample_prior="only"
+               )
+
+yrep_fit_posterior_D3_log <- posterior_predict(model_D3_check_log)
+
+#complete_yrep_fit_posterior=yrep_fit_posterior_D3[complete.cases(yrep_fit_posterior_D3),]
+
+# 200 prior simulations
+complete_yrep_fit_posterior_f_D3_log=yrep_fit_posterior_D3_log[1:200,]
+
+# below is from bayesplot
+ppc_dens_overlay(D3$logRENTcentered,
+                 complete_yrep_fit_posterior_f_D3_log) +
+  xlab("log(RENT)") + ylab("Density") + ggtitle("Posterior predictive check D3") 
+
+D3_posteriorpredictivecheck = ppc_dens_overlay(D3$logRENTcentered,
+                                               complete_yrep_fit_posterior_f_D3_log) +
+  xlab("log-Rent") + ylab("Density") + ggtitle("Posterior predictive check D3") +
+  ggtitle("") +
+  theme_minimal() +
+  theme(legend.position="bottom",
+        legend.box="vertical",
+        text = element_text(size=25),
+        axis.text.x = element_text(angle=45, hjust=1),
+        strip.text.x = element_text(size = 25),
+        strip.text.y = element_text(size = 25),
+        legend.title = element_text(size = 25),
+        panel.spacing = unit(2, "lines")
+  ) + xlim(c(-3,3))
+  # xlim(c(min(D3$logRENTcentered),
+  #        max(D3$logRENTcentered)))
+
+
+
+```
+
+
+```{r}
+# Prior predictive check
+
+model_D3_check_log = brm(formula = logRENTcentered ~ (1|incomebracket),
+               prior = c(
+                 prior(normal(0, 5), class=Intercept), 
+                 prior(normal(0, 5), class = sd),
+                 prior(normal(0, 5), class = sigma)
+               ),
+               data = D3,
+               chains=1,
+               cores=1,
+               control = list(adapt_delta = 0.95), 
+               sample_prior="only"
+               )
+
+yrep_fit_posterior_D3_log <- posterior_predict(model_D3_check_log)
+
+#complete_yrep_fit_posterior=yrep_fit_posterior_D3[complete.cases(yrep_fit_posterior_D3),]
+
+# 200 prior simulations
+complete_yrep_fit_posterior_f_D3_log=yrep_fit_posterior_D3_log[1:200,]
+
+# below is from bayesplot
+ppc_dens_overlay(D3$logRENTcentered,
+                 complete_yrep_fit_posterior_f_D3_log) +
+  xlab("log(RENT)") + ylab("Density") + ggtitle("Prior predictive check D3") 
+
+D3_priorpredictivecheck = ppc_dens_overlay(D3$logRENTcentered,
+                                           complete_yrep_fit_posterior_f_D3_log) +
+  xlab("log-Rent") + ylab("Density") + ggtitle("Prior predictive check D3")  +
+  ggtitle("") +
+  theme_minimal() +
+  theme(legend.position="bottom",
+        legend.box="vertical",
+        text = element_text(size=25),
+        axis.text.x = element_text(angle=45, hjust=1),
+        strip.text.x = element_text(size = 25),
+        strip.text.y = element_text(size = 25),
+        legend.title = element_text(size = 25),
+        panel.spacing = unit(2, "lines")
+  ) + xlim(c(-3,3))
+  # xlim(c(min(D3$logRENTcentered),
+  #        max(D3$logRENTcentered)))
+
+
+cowplot::plot_grid(D3_priorpredictivecheck, D3_posteriorpredictivecheck,
+                   labels = c("Prior predictive check", "Posterior predictive check"),
+                   label_size = 25)
+
+ggsave(paste0("D3_ppd.png"), width = 20, height = 10)
+```
