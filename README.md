@@ -22,7 +22,7 @@ Figures 2-7, 11, 12 are produced with the below steps:
   
 Produce simulation data files based on 1000 simulation iterations for all 9 combinations of main survey size = ```1000, 2000, 4000``` and auxillary survey size = ```15*55, 25*55, 50*55```.
 
-3. Run ```visualizesimulations_logRENTcentered_v4.Rmd``` with the settings below to visualize MRP interval coverage for the 9 simulation settings in step 2:
+3. Knit ```visualizesimulations_logRENTcentered_v4.Rmd``` with the settings below to visualize MRP interval coverage for the 9 simulation settings in step 2:
 
 ```r
 ACSstratasizevec = c(15,25,50)
@@ -38,7 +38,7 @@ Dsizevec = c(1000,2000,4000)
 
 1. Download all the files in ```cellcollapsing_public/discretization_casestudy/```
 
-2. Run ```Figure_8_comparing_ppd_and_pld.Rmd``` for all 9 combinations of ```p = 0.5, 0.75, 0.9``` and ```ACSstratasize = 3, 8, 15```. This is done by changing the code chunk at the beginning of the RMD file. This will produce the 9 rds files below
+2. Knit ```Figure_8_comparing_ppd_and_pld.Rmd``` for all 9 combinations of ```p = 0.5, 0.75, 0.9``` and ```ACSstratasize = 3, 8, 15```. This is done by changing the code chunk at the beginning of the RMD file. This will produce the 9 rds files below:
 
 ```r
 comparing_linpred_pp_1000_3_90 = readRDS("comparing_linpred_pp_1000_3_90.rds")
@@ -52,9 +52,30 @@ comparing_linpred_pp_1000_15_75 = readRDS("comparing_linpred_pp_1000_15_75.rds")
 comparing_linpred_pp_1000_15_50 = readRDS("comparing_linpred_pp_1000_15_50.rds")
 ```
 
-3. Run the final code chunk to produce the png for Figure 9. I have done this for seed = ```set.seed(30628)```.
+3. Run the final code chunk in ```Figure_8_comparing_ppd_and_pld.Rmd``` to produce the png for Figure 8. I have done this for seed = ```set.seed(30628)```.
 
+4. Knit ```Figure_9_10.Rmd``` for all 9 combinations of ```p = 0.5, 0.75, 0.9``` and ```Dsize = 1000, 2000, 4000```. This is done by changing the code chunk at the beginning of the RMD file. This will produce the 9 rds files below:
 
+```r
+est_p90 = readRDS("est_420002_1000_15_90_4_0.rds")
+est_p75 = readRDS("est_420002_1000_15_75_4_0.rds")
+est_p50 = readRDS("est_420002_1000_15_50_4_0.rds")
+est_p90_2000 = readRDS("est_420002_2000_15_90_4_0.rds")
+est_p75_2000 = readRDS("est_420002_2000_15_75_4_0.rds")
+est_p50_2000 = readRDS("est_420002_2000_15_50_4_0.rds")
+est_p90_4000 = readRDS("est_420002_4000_15_90_4_0.rds")
+est_p75_4000 = readRDS("est_420002_4000_15_75_4_0.rds")
+est_p50_4000 = readRDS("est_420002_4000_15_50_4_0.rds")
+```
+
+5. Run the final code chunk in ```Figure_9_10.Rmd``` to produce the pngs for Figures 9 and 10. I have done this for 
+
+```r
+seed_num = 420001
+set.seed(seed_num)
+```
+
+as seen in the first code chunk of ```Figure_9_10.Rmd```.
 
 # References
 
