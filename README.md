@@ -24,7 +24,7 @@ Produce simulation data files based on 1000 simulation iterations for all 9 comb
 
 3. Run ```visualizesimulations_logRENTcentered_v4.Rmd``` with the settings below to visualize MRP interval coverage for the 9 simulation settings in step 2:
 
-```
+```r
 ACSstratasizevec = c(15,25,50)
 Dsizevec = c(1000,2000,4000)
 ```
@@ -36,7 +36,7 @@ Dsizevec = c(1000,2000,4000)
 
 # Steps to reproduce results in the cell collapsing case study (Section 5.2 in the manuscript)
 
-1. 
+1.  
 
 # References
 
