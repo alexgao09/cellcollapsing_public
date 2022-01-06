@@ -8,6 +8,8 @@ Repository for Chapter 4 of my PhD thesis: "When should we collapse cells for Mu
 
 # Steps to reproduce results in the interval coverage Monte Carlo case study (Section 5.1 in the manuscript)
 
+Figure 1 is produced by knitting the file ```prior_posterior_checks.Rmd```.
+
 Figures 2-7, 11, 12 are produced with the below steps:
 
 1. Download all the files in ```cellcollapsing_public/interval_coverage_casestudy/```
