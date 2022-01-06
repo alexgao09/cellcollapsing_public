@@ -52,7 +52,13 @@ comparing_linpred_pp_1000_15_75 = readRDS("comparing_linpred_pp_1000_15_75.rds")
 comparing_linpred_pp_1000_15_50 = readRDS("comparing_linpred_pp_1000_15_50.rds")
 ```
 
-3. Run the final code chunk in ```Figure_8_comparing_ppd_and_pld.Rmd``` to produce the png for Figure 8. I have done this for seed = ```set.seed(30628)```.
+3. Run the final code chunk in ```Figure_8_comparing_ppd_and_pld.Rmd``` to produce the png for Figure 8. I have done this for
+
+```r
+set.seed(30628)
+```
+
+as seen in the beginning code chunk of ```Figure_8_comparing_ppd_and_pld.Rmd```.
 
 4. Knit ```Figure_9_10.Rmd``` for all 9 combinations of ```p = 0.5, 0.75, 0.9``` and ```Dsize = 1000, 2000, 4000```. This is done by changing the code chunk at the beginning of the RMD file. This will produce the 9 rds files below:
 
