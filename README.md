@@ -22,7 +22,7 @@ Figures 2-7, 11, 12 are produced with the below steps:
   
 Produce simulation data files based on 1000 simulation iterations for all 9 combinations of main survey size = ```1000, 2000, 4000``` and auxillary survey size = ```15*55, 25*55, 50*55```.
 
-3. Knit ```visualizesimulations_logRENTcentered_v4.Rmd``` with the settings below to visualize MRP interval coverage for the 9 simulation settings in step 2:
+3. Knit ```visualizesimulations_logRENTcentered_v4.Rmd``` with the settings seen at the top of the first code chunk in ```visualizesimulations_logRENTcentered_v4.Rmd```. This visualizes MRP uncertainty interval coverage (accounting for/not accounting for auxillary survey's design based uncertainty) for the 9 simulation settings in step 2:
 
 ```r
 ACSstratasizevec = c(15,25,50)
