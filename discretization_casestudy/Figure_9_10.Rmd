@@ -23,13 +23,16 @@ library(brms)
 library(tidybayes)
 library(survey)
 
+# the target subgroup is age_fivegroups_target = 4, sex_binary_target = 0
 age_fivegroups_target = 4
 sex_binary_target = 0
-p = 0.9 # p determines how nonrepresentative D is
 
-# Dsize is nonrep sample size
+# p determines how nonrepresentative D is
+p = 0.9
+# Dsize is main survey sample size
 Dsize = 1000
 # ACSstratasize is the size of random sample in each PUMA strata when performing a stratified random sample of P
+# The auxillary survey size is ACSstratasize * 55, as there are 55 PUMA in the target population
 ACSstratasize = 15
 ```
 
@@ -474,6 +477,12 @@ $\text{est_420002_2000_15_90_4_0.rds}$
 $\text{est_420002_2000_15_75_4_0.rds}$
 
 $\text{est_420002_2000_15_50_4_0.rds}$
+
+$\text{est_420002_4000_15_90_4_0.rds}$
+
+$\text{est_420002_4000_15_75_4_0.rds}$
+
+$\text{est_420002_4000_15_50_4_0.rds}$
 
 ```{r,eval = FALSE}
 
