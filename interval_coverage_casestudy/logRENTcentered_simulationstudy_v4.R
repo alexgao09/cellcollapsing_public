@@ -72,7 +72,7 @@ Jvec = c(3,6,12,18)
 # iterations is number of sim iterations
 iterations = 1000
 # Dsize is nonrep sample size
-Dsizevec = c(500)
+Dsizevec = c(1000)
 # ACSstratasize is the size of random sample in each PUMA strata when performing a stratified random sample of P
 ACSstratasizevec = c(15)
 
@@ -91,10 +91,7 @@ P[P$INCTOT>median(P$INCTOT), c("INCTOTprobD2")] = 0.25
 P$INCTOTprobD3 = 0
 P[P$INCTOT<=median(P$INCTOT), c("INCTOTprobD3")] = 0.9
 P[P$INCTOT>median(P$INCTOT), c("INCTOTprobD3")] = 0.1
-# 
-# P$INCTOTprobD3 = 0
-# P[P$INCTOT<=20000, c("INCTOTprobD3")] = 0.9
-# P[P$INCTOT>20000, c("INCTOTprobD3")] = 0.1
+
 
 
 
