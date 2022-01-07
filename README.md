@@ -36,7 +36,7 @@ This step visualizes MRP uncertainty interval coverage (accounting for/not accou
 ## Notes:
 
 - The file ```nystate_fiveyear2015_2019.rds``` is the IPUMS USA data from 2015-2019, for New York state [1]. This file was retrieved from https://usa.ipums.org/usa/index.shtml
-- Step 2 should be run in 9 parallel processes for speed. 
+- Step 2 should be run in 9 parallel processes. This will allow the 1000 simulations across 9 settings to be completed in a few days. 
 
 # Steps to reproduce results in the cell collapsing case study (Section 5.2 in the manuscript)
 
